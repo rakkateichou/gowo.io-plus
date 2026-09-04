@@ -1,0 +1,71 @@
+name: Bump userscript version
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - gowo.io-plus.user.js
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: userscript-version-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bump-version:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate version
+        id: version
+        shell: bash
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          version="$(date -u +'%Y.%-m.%-d').${RUN_NUMBER}"
+          echo "value=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Update userscript metadata
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'gowo.io-plus.user.js';
+          const source = fs.readFileSync(path, 'utf8');
+          const versionLine = /^\/\/ @version\s+\S+\s*$/m;
+
+          if (!versionLine.test(source)) {
+              throw new Error('Userscript metadata does not contain @version');
+          }
+
+          fs.writeFileSync(
+              path,
+              source.replace(versionLine, `// @version      ${process.env.VERSION}`)
+          );
+          NODE
+
+      - name: Commit version bump
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          if git diff --quiet -- gowo.io-plus.user.js; then
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add gowo.io-plus.user.js
+          git commit -m "chore: bump userscript version to ${VERSION} [skip ci]"
+          git push

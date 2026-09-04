@@ -203,7 +203,7 @@
         { token: ':teatime:', label: 'TeaTime', id: '01HM4P26CR000449DZBT4FVMA5' },
         { token: ':pianotime:', label: 'PianoTime', id: '01G98V81Q80000BRQD106P0ZEK' },
         { token: ':nymncorn:', label: 'nymnCorn', id: '01HM6NJ2X000035ZKVAPWBNW26' },
-        { token: ':seventv:', label: 'sevenTV', id: '01J107C3E8000DX4MZBQSYGRXS' },
+        { token: ':winetime:', label: 'WineTime', id: '01HM4PGHC80007635TAZG67FT5' },
         { token: ':nanaayaya:', label: 'nanaAYAYA', id: '01FTEZEE900001E12995B12GR4' },
         { token: ':biblethump:', label: 'BibleThump', id: '01J8NMZ2HG0005G1FWF2H9Y615' },
         { token: ':glorp:', label: 'glorp', id: '01H16FA16G0005EZED5J0EY7KN' },

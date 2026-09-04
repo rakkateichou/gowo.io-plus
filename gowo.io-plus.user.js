@@ -32,7 +32,6 @@
 
     function initPlayerCursorBridge() {
         let holding = false;
-        let lastPoint = null;
 
         const send = (type, point = null) => {
             window.parent.postMessage({
@@ -53,8 +52,9 @@
         };
 
         document.addEventListener('mousemove', event => {
-            lastPoint = pointFromEvent(event);
-            if (holding && lastPoint) send('move', lastPoint);
+            if (!holding) return;
+            const point = pointFromEvent(event);
+            if (point) send('move', point);
         }, true);
 
         document.addEventListener('keydown', event => {
@@ -65,7 +65,9 @@
             }
             event.preventDefault();
             holding = true;
-            send('start', lastPoint);
+            // The last mousemove can predate the key press by several seconds.
+            // Start an empty stroke and let the first live move set its origin.
+            send('start');
         }, true);
 
         document.addEventListener('keyup', event => {
@@ -622,6 +624,7 @@
     const cursorSendIntervalMs = 50;
     const cursorStaleAfterMs = 1600;
     const cursorMaxTrailPoints = 600;
+    const cursorMaxTrailSegmentPx = 120;
     const cursorTrailCurveTension = 0.45;
     const cursorElements = new Map();
     const cursorTrails = new Map();
@@ -634,13 +637,13 @@
     let cursorReconnectDelay = 1000;
     let cursorHolding = false;
     let cursorVisible = false;
-    let cursorLastPointer = null;
     let cursorLastSentAt = 0;
     let cursorPendingPoint = null;
     let cursorSendTimer = null;
     let cursorRenderFrame = null;
     let cursorRenderPoint = null;
     let cursorCaptureOverlay = null;
+    let cursorIdentityName = '';
 
     const cursorClientId = (() => {
         const storageKey = 'gowo-plus-cursor-client-id';
@@ -662,49 +665,56 @@
         }
     })();
 
-    function decodeJwtPayload(token) {
+    function getGowoAuthToken() {
         try {
-            const encoded = String(token || '').split('.')[1];
-            if (!encoded) return null;
-            const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
-            const padded = base64.padEnd(
-                base64.length + ((4 - (base64.length % 4)) % 4),
-                '='
-            );
-            const bytes = Uint8Array.from(
-                atob(padded),
-                character => character.charCodeAt(0)
-            );
-            return JSON.parse(new TextDecoder().decode(bytes));
+            const tokenCookie = document.cookie
+                .split(';')
+                .map(part => part.trim())
+                .find(part => part.startsWith('token='));
+            return tokenCookie ?
+                decodeURIComponent(tokenCookie.slice('token='.length)) : '';
         } catch {
-            return null;
+            return '';
         }
     }
 
-    function cursorNickname() {
-        const tokenCookie = document.cookie
-            .split(';')
-            .map(part => part.trim())
-            .find(part => part.startsWith('token='));
-        const token = tokenCookie ?
-            decodeURIComponent(tokenCookie.slice('token='.length)) : '';
-        const payload = decodeJwtPayload(token);
-        const candidates = [payload?.user, payload?.data, payload]
+    function cursorNameFromProfile(profile) {
+        const candidates = [profile?.data, profile?.user, profile]
             .filter(candidate => candidate && typeof candidate === 'object');
 
         for (const candidate of candidates) {
-            const direct = candidate.display_name || candidate.displayName ||
-                candidate.username || candidate.user_name;
-            const fullName = direct || [
+            const fullName = [
                 candidate.name || candidate.first_name || candidate.given_name,
                 candidate.surname || candidate.last_name || candidate.family_name
             ].filter(Boolean).join(' ');
-            const normalized = String(fullName || '')
+            const displayName = fullName || candidate.display_name ||
+                candidate.displayName || candidate.username ||
+                candidate.user_name;
+            const normalized = String(displayName || '')
                 .replace(/[\u0000-\u001f\u007f]/g, '')
                 .trim();
             if (normalized) return normalized.slice(0, 40);
         }
 
+        return '';
+    }
+
+    async function loadCursorIdentity() {
+        const token = getGowoAuthToken();
+        if (!token) return;
+        try {
+            const response = await fetch('https://api.gowo.io/api/current', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (!response.ok) return;
+            cursorIdentityName = cursorNameFromProfile(await response.json());
+        } catch {
+            // Keep the anonymous fallback if Gowo's profile lookup is unavailable.
+        }
+    }
+
+    function cursorNickname() {
+        if (cursorIdentityName) return cursorIdentityName;
         return `Gowo user ${cursorClientId.slice(0, 4)}`;
     }
 
@@ -829,8 +839,14 @@
     function addCursorTrailPoint(clientId, username, x, y) {
         const trail = cursorTrailElement(clientId, username);
         const previous = trail.points[trail.points.length - 1];
-        if (previous && Math.hypot(x - previous.x, y - previous.y) < 1) {
-            return;
+        if (previous) {
+            const distance = Math.hypot(x - previous.x, y - previous.y);
+            if (distance < 1) return;
+            if (distance > cursorMaxTrailSegmentPx) {
+                // Treat a large coordinate discontinuity as a new stroke,
+                // rather than drawing a teleport line across the video.
+                trail.points.length = 0;
+            }
         }
         trail.points.push({ x, y });
         if (trail.points.length > cursorMaxTrailPoints) {
@@ -992,14 +1008,13 @@
         cursorCaptureOverlay = null;
     }
 
-    function startCursorDrawing(point = null) {
+    function startCursorDrawing() {
         if (!getCursorSurface()) return;
+        // A fresh key press always begins a fresh stroke, even if a previous
+        // keyup was lost while focus moved between the page and player iframe.
+        pauseOwnCursor();
         cursorHolding = true;
         showCursorCaptureOverlay();
-        if (point) {
-            renderOwnCursor(point);
-            queueCursorPoint(point);
-        }
     }
 
     function stopCursorDrawing() {
@@ -1100,7 +1115,11 @@
         const alias = getRoomAlias();
         if (!alias) return;
         try {
-            cursorRoomKey = await hashCursorRoom(alias);
+            const [roomKey] = await Promise.all([
+                hashCursorRoom(alias),
+                loadCursorIdentity()
+            ]);
+            cursorRoomKey = roomKey;
             connectCursorRelay();
         } catch {
             cursorRelayStarted = false;
@@ -1113,11 +1132,8 @@
             return;
         }
         event.preventDefault();
-        const point = cursorLastPointer ? cursorPointFromClient(
-            cursorLastPointer.clientX,
-            cursorLastPointer.clientY
-        ) : null;
-        startCursorDrawing(point);
+        // The capture layer's first live mousemove establishes the stroke.
+        startCursorDrawing();
     }, true);
 
     document.addEventListener('keyup', event => {
@@ -1127,10 +1143,6 @@
     }, true);
 
     document.addEventListener('mousemove', event => {
-        cursorLastPointer = {
-            clientX: event.clientX,
-            clientY: event.clientY
-        };
         if (!cursorHolding) return;
         const point = cursorPointFromClient(event.clientX, event.clientY);
         if (point) {
@@ -1165,7 +1177,7 @@
                 y: Math.max(0, Math.min(1, Number(point.y)))
             } : null;
         if (message.type === 'start') {
-            startCursorDrawing(normalizedPoint);
+            startCursorDrawing();
         } else if (message.type === 'move' && cursorHolding &&
             normalizedPoint) {
             renderOwnCursor(normalizedPoint);
@@ -1290,7 +1302,7 @@
         .gowo-cursor-capture {
             position: fixed;
             z-index: 24998;
-            cursor: crosshair;
+            cursor: none;
             pointer-events: auto;
             touch-action: none;
         }

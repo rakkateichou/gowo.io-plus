@@ -35,6 +35,54 @@
         root.querySelectorAll(sel).forEach(el => el.remove());
     }
 
+    function isBlockedAdUrl(value) {
+        if (!value) return false;
+
+        try {
+            const url = new URL(value, window.location.href);
+            const hostname = url.hostname.toLowerCase();
+
+            return hostname === 'ads.digitalcaramel.com' ||
+                hostname === 'vak345.com' ||
+                hostname.endsWith('.vak345.com') ||
+                (hostname === 'yandex.ru' && url.pathname.startsWith('/ads/'));
+        } catch {
+            return false;
+        }
+    }
+
+    function isInjectedVideoAdOverlay(el) {
+        if (!(el instanceof HTMLDivElement) || !el.id ||
+            el.parentElement !== document.body) {
+            return false;
+        }
+
+        const style = el.style;
+        const fixedToBottomCorner = style.position === 'fixed' &&
+            style.bottom === '0px' &&
+            (style.left === '0px' || style.right === '0px');
+        const videoAdSize = style.width === '400px' &&
+            style.height === '225px' &&
+            style.minWidth === '400px' &&
+            style.minHeight === '225px';
+
+        return fixedToBottomCorner && videoAdSize &&
+            style.pointerEvents === 'none' &&
+            style.display === 'flex' &&
+            style.flexFlow === 'column' &&
+            style.alignItems === 'center';
+    }
+
+    function removeInjectedAds() {
+        document.querySelectorAll('script[src], iframe[src]').forEach(el => {
+            if (isBlockedAdUrl(el.src)) el.remove();
+        });
+
+        document.querySelectorAll('body > div[id][style]').forEach(el => {
+            if (isInjectedVideoAdOverlay(el)) el.remove();
+        });
+    }
+
     function stringToColor(str) {
         // FNV-1a-ish hash
         let hash = 2166136261;
@@ -105,6 +153,8 @@
     `));
 
     function apply() {
+        removeInjectedAds();
+
         remove([
             '.wrap-head-room',
             '.button-under-chat',
@@ -132,4 +182,6 @@
         childList: true,
         subtree: true
     });
+
+    apply();
 })();

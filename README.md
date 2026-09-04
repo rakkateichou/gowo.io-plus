@@ -2,6 +2,12 @@
 
 A Tampermonkey userscript that enhances Gowo.io rooms.
 
+## Features
+
+- Streamlined room and chat layout
+- Consistent nickname colours and compact consecutive messages
+- Best-effort removal of Gowo.io ad loaders and injected video-ad overlays
+
 ## Install
 
 [Install Gowo.io+](https://raw.githubusercontent.com/rakkateichou/gowo.io-plus/main/gowo.io-plus.user.js)

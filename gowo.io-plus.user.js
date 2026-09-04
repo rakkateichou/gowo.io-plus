@@ -972,7 +972,7 @@
         syncCursorCaptureOverlay();
     }
 
-    function hideOwnCursor() {
+    function pauseOwnCursor() {
         if (cursorSendTimer) clearTimeout(cursorSendTimer);
         cursorSendTimer = null;
         cursorPendingPoint = null;
@@ -981,11 +981,15 @@
             cursorRenderFrame = null;
         }
         cursorRenderPoint = null;
-        cursorCaptureOverlay?.remove();
-        cursorCaptureOverlay = null;
         removeCursor(cursorClientId);
         if (cursorVisible) sendCursorPacket();
         cursorVisible = false;
+    }
+
+    function hideOwnCursor() {
+        pauseOwnCursor();
+        cursorCaptureOverlay?.remove();
+        cursorCaptureOverlay = null;
     }
 
     function startCursorDrawing(point = null) {
@@ -1132,6 +1136,8 @@
         if (point) {
             renderOwnCursor(point);
             queueCursorPoint(point);
+        } else {
+            pauseOwnCursor();
         }
     }, true);
 

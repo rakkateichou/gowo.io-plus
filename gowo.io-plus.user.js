@@ -215,9 +215,32 @@
         return `hsl(${hue}, 85%, 70%)`; // bright for black bg
     }
 
+    const messageTimeFormatter = new Intl.DateTimeFormat(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+
     let lastFullNickname = null;
 
     function formatMessage(el) {
+        const isUserMessage = Boolean(
+            el.id && el.querySelector(':scope > .user')
+        );
+
+        if (isUserMessage) {
+            if (!el.dataset.gowoMessageTime) {
+                el.dataset.gowoMessageTime = messageTimeFormatter.format(
+                    new Date()
+                );
+            }
+
+            el.classList.toggle(
+                'gowo-message-has-reply',
+                Boolean(el.querySelector('.text__reply'))
+            );
+        }
+
         if (el.dataset.formatted === '1') return;
 
         const nicknameEl = el.querySelector('.header-message > p');
@@ -265,8 +288,36 @@
         .message { padding: 0 8px!important; margin-bottom: 5px!important; }
         .message .text { margin-left: 0px!important; }
         .message .text div { width: auto!important; }
+        .message.gowo-message-has-reply .text {
+            flex-direction: column!important;
+            align-items: stretch!important;
+        }
         .header-message { width: auto!important; }
         .header-message p { font-weight: bold; margin-right: 5px; }
+
+        .message[data-gowo-message-time]::after {
+            content: attr(data-gowo-message-time);
+            position: absolute;
+            right: 8px;
+            bottom: calc(100% + 2px);
+            z-index: 3;
+            padding: 2px 5px;
+            border-radius: 4px;
+            background: #1e1e1e;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+            color: #aaa;
+            font-size: 10px;
+            line-height: 1.2;
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(2px);
+            transition: opacity 120ms ease, transform 120ms ease;
+        }
+        .message[data-gowo-message-time]:hover::after {
+            opacity: 1;
+            transform: translateY(0);
+        }
 
         textarea { background: #000; color: #fff; }
         .call { background: #000!important; }

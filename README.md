@@ -6,6 +6,8 @@ A Tampermonkey userscript that enhances Gowo.io rooms.
 
 - Streamlined room and chat layout
 - Consistent nickname colours and compact consecutive messages
+- Local receive/send time shown when hovering over a live chat message
+- Reply text always starts below its quoted message
 - Best-effort removal of Gowo.io ad loaders and injected video-ad overlays
 - Starts the video pane below the room controls, which remain available by scrolling up
 - Compact settings typography and a saved, default-on option to hide the call button

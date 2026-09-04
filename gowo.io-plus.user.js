@@ -368,6 +368,16 @@
         closeEmotePicker();
     }
 
+    function focusChatComposer() {
+        const input = document.querySelector(
+            'app-chat-messages-room .form-message textarea'
+        );
+        if (!input || input.disabled) return;
+        input.focus({ preventScroll: true });
+        const caret = input.value.length;
+        input.setSelectionRange(caret, caret);
+    }
+
     function injectEmotePicker() {
         const form = document.querySelector(
             'app-chat-messages-room .form-message'
@@ -477,6 +487,13 @@
     }
 
     document.addEventListener('click', event => {
+        if (event.target.closest?.(
+            '.message .actions app-icon-undo'
+        )) {
+            // Let Gowo select and render the quoted message first.
+            requestAnimationFrame(focusChatComposer);
+        }
+
         const picker = document.getElementById(emotePickerId);
         const toggle = document.getElementById(emoteToggleId);
         if (picker && toggle && !picker.hidden &&

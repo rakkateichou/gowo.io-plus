@@ -2,7 +2,7 @@
 // @name         Gowo.io+
 // @namespace    https://github.com/rakkateichou/gowo.io-plus
 // @description  Gowo.io enhancer
-// @version      2026.9.4.0
+// @version      2026.9.4.1
 // @author       rakkateichou
 // @match        *://gowo.io/orooms/*
 // @run-at       document-start

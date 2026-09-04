@@ -147,6 +147,7 @@
         `https://cdn.7tv.app/emote/${id}/2x.webp`;
     const emoteToggleId = 'gowo-emote-toggle';
     const emotePickerId = 'gowo-emote-picker';
+    const sendButtonId = 'gowo-send-button';
 
     function createSevenTvTokenPattern() {
         return new RegExp(`(${sevenTvTokenSource})`, 'gi');
@@ -269,6 +270,19 @@
         toggle.setAttribute('aria-expanded', 'false');
     }
 
+    function sendMessageThroughGowo(input) {
+        if (!input?.value.trim()) return;
+
+        input.focus({ preventScroll: true });
+        input.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Enter',
+            code: 'Enter',
+            bubbles: true,
+            cancelable: true
+        }));
+        closeEmotePicker();
+    }
+
     function injectEmotePicker() {
         const form = document.querySelector(
             'app-chat-messages-room .form-message'
@@ -280,20 +294,31 @@
 
         const existingPicker = document.getElementById(emotePickerId);
         const existingToggle = document.getElementById(emoteToggleId);
-        if (existingPicker && existingToggle &&
-            form.contains(existingPicker) && form.contains(existingToggle)) {
+        const existingSendButton = document.getElementById(sendButtonId);
+        if (existingPicker && existingToggle && existingSendButton &&
+            form.contains(existingPicker) &&
+            form.contains(existingToggle) &&
+            form.contains(existingSendButton)) {
             return;
         }
         existingPicker?.remove();
         existingToggle?.remove();
+        existingSendButton?.remove();
 
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.id = emoteToggleId;
-        toggle.textContent = '7TV';
+        toggle.textContent = '☺';
         toggle.title = '7TV emotes';
         toggle.setAttribute('aria-label', '7TV emotes');
         toggle.setAttribute('aria-expanded', 'false');
+
+        const sendButton = document.createElement('button');
+        sendButton.type = 'button';
+        sendButton.id = sendButtonId;
+        sendButton.textContent = 'Send';
+        sendButton.title = 'Send message';
+        sendButton.setAttribute('aria-label', 'Send message');
 
         const picker = document.createElement('div');
         picker.id = emotePickerId;
@@ -353,8 +378,16 @@
         picker.addEventListener('wheel', event => {
             event.stopPropagation();
         }, { passive: true });
+        sendButton.addEventListener('mousedown', event => {
+            event.preventDefault();
+        });
+        sendButton.addEventListener('click', event => {
+            event.stopPropagation();
+            sendMessageThroughGowo(input);
+        });
 
         footerRow.insertBefore(toggle, inputWrapper);
+        footerRow.append(sendButton);
         form.append(picker);
     }
 
@@ -628,6 +661,11 @@
         app-chat-messages-room .form-message {
             position: relative!important;
         }
+        app-chat-messages-room .chat-footer > .d-flex > .textarea {
+            min-width: 0;
+            width: auto!important;
+            flex: 1 1 auto;
+        }
         #${emoteToggleId} {
             width: 32px;
             height: 32px;
@@ -642,14 +680,31 @@
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            font-size: 10px!important;
-            font-weight: 700;
+            font-family: sans-serif;
+            font-size: 20px!important;
             line-height: 1!important;
         }
         #${emoteToggleId}:hover,
         #${emoteToggleId}[aria-expanded="true"] {
             border-color: #7900d9;
             color: #fff;
+        }
+        #${sendButtonId} {
+            height: 32px;
+            flex: 0 0 auto;
+            margin-left: 5px;
+            padding: 0 9px;
+            border: 1px solid #7900d9;
+            border-radius: 7px;
+            background: #4c007d;
+            color: #fff;
+            cursor: pointer;
+            font-size: 11px!important;
+            font-weight: 700;
+            line-height: 1!important;
+        }
+        #${sendButtonId}:hover {
+            background: #6500a8;
         }
         #${emotePickerId} {
             position: absolute;

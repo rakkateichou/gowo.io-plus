@@ -646,7 +646,6 @@
     const cursorSendIntervalMs = 50;
     const cursorStaleAfterMs = 1600;
     const cursorMaxTrailPoints = 600;
-    const cursorMaxTrailSegmentPx = 120;
     const cursorTrailCurveTension = 0.45;
     const cursorElements = new Map();
     const cursorTrails = new Map();
@@ -864,11 +863,6 @@
         if (previous) {
             const distance = Math.hypot(x - previous.x, y - previous.y);
             if (distance < 1) return;
-            if (distance > cursorMaxTrailSegmentPx) {
-                // Treat a large coordinate discontinuity as a new stroke,
-                // rather than drawing a teleport line across the video.
-                trail.points.length = 0;
-            }
         }
         trail.points.push({ x, y });
         if (trail.points.length > cursorMaxTrailPoints) {

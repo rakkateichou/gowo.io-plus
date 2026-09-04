@@ -661,50 +661,79 @@
         app-chat-messages-room .form-message {
             position: relative!important;
         }
+        app-chat-messages-room .chat-footer {
+            --gowo-chat-control-height: 36px;
+            --gowo-chat-control-radius: 7px;
+            --gowo-chat-control-border: #555;
+            --gowo-chat-control-bg: #000;
+            --gowo-chat-control-text: #fff;
+        }
+        app-chat-messages-room .chat-footer > .d-flex {
+            align-items: stretch!important;
+        }
         app-chat-messages-room .chat-footer > .d-flex > .textarea {
             min-width: 0;
             width: auto!important;
             flex: 1 1 auto;
         }
-        #${emoteToggleId} {
-            width: 32px;
-            height: 32px;
-            flex: 0 0 32px;
-            margin-right: 5px;
-            padding: 0;
-            border: 1px solid #3a3a3a;
-            border-radius: 7px;
-            background: #000;
-            color: #aaa;
+        app-chat-messages-room .chat-footer textarea {
+            height: var(--gowo-chat-control-height)!important;
+            min-height: var(--gowo-chat-control-height)!important;
+            border: 1px solid var(--gowo-chat-control-border)!important;
+            border-radius: var(--gowo-chat-control-radius)!important;
+            background: var(--gowo-chat-control-bg)!important;
+            color: var(--gowo-chat-control-text)!important;
+            transition: border-color 120ms ease, box-shadow 120ms ease;
+        }
+        app-chat-messages-room .chat-footer textarea:focus {
+            border-color: #fff!important;
+            outline: none!important;
+            box-shadow: 0 0 0 1px #fff;
+        }
+        #${emoteToggleId},
+        #${sendButtonId} {
+            height: var(--gowo-chat-control-height);
+            min-height: var(--gowo-chat-control-height);
+            border: 1px solid var(--gowo-chat-control-border);
+            border-radius: var(--gowo-chat-control-radius);
+            background: var(--gowo-chat-control-bg);
+            color: var(--gowo-chat-control-text);
             display: inline-flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
+            transition: background 120ms ease, color 120ms ease,
+                border-color 120ms ease, box-shadow 120ms ease;
+        }
+        #${emoteToggleId} {
+            width: var(--gowo-chat-control-height);
+            flex: 0 0 var(--gowo-chat-control-height);
+            margin-right: 5px;
+            padding: 0;
             font-family: sans-serif;
             font-size: 20px!important;
             line-height: 1!important;
         }
         #${emoteToggleId}:hover,
-        #${emoteToggleId}[aria-expanded="true"] {
-            border-color: #7900d9;
-            color: #fff;
+        #${emoteToggleId}[aria-expanded="true"],
+        #${sendButtonId}:hover {
+            border-color: #fff;
+            background: #fff;
+            color: #000;
+        }
+        #${emoteToggleId}:focus-visible,
+        #${sendButtonId}:focus-visible {
+            border-color: #fff;
+            outline: none;
+            box-shadow: 0 0 0 1px #fff;
         }
         #${sendButtonId} {
-            height: 32px;
             flex: 0 0 auto;
             margin-left: 5px;
-            padding: 0 9px;
-            border: 1px solid #7900d9;
-            border-radius: 7px;
-            background: #4c007d;
-            color: #fff;
-            cursor: pointer;
+            padding: 0 11px;
             font-size: 11px!important;
             font-weight: 700;
             line-height: 1!important;
-        }
-        #${sendButtonId}:hover {
-            background: #6500a8;
         }
         #${emotePickerId} {
             position: absolute;
@@ -713,7 +742,7 @@
             bottom: calc(100% + 6px);
             z-index: 10;
             padding: 8px;
-            border: 1px solid #7900d9;
+            border: 1px solid #555;
             border-radius: 9px;
             background: #111;
             box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.55);

@@ -581,28 +581,50 @@
 
         scheduledPlayerScrolls.add(player);
         let attempts = 0;
+        let timer = null;
+        const listeners = new AbortController();
+
+        const finish = () => {
+            if (timer !== null) clearTimeout(timer);
+            listeners.abort();
+            scheduledPlayerScrolls.delete(player);
+            completedPlayerScrolls.add(player);
+        };
+
+        // Stop pinning as soon as the viewer deliberately tries to scroll up.
+        player.addEventListener('wheel', event => {
+            if (event.deltaY < 0) finish();
+        }, {
+            passive: true,
+            signal: listeners.signal
+        });
+        player.addEventListener('touchstart', finish, {
+            passive: true,
+            once: true,
+            signal: listeners.signal
+        });
+        window.addEventListener('keydown', event => {
+            if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) finish();
+        }, { capture: true, signal: listeners.signal });
 
         const scrollWhenReady = () => {
             if (!player.isConnected) {
-                scheduledPlayerScrolls.delete(player);
+                finish();
                 return;
             }
 
             if (player.scrollHeight > player.clientHeight) {
-                // Let the Angular player finish its current layout before scrolling.
-                requestAnimationFrame(() => requestAnimationFrame(() => {
-                    if (!player.isConnected) return;
-                    player.scrollTop = player.scrollHeight - player.clientHeight;
-                    completedPlayerScrolls.add(player);
-                }));
-                return;
+                // Angular and the embedded player grow in several passes. Keep
+                // following the bottom during startup so a later layout pass
+                // cannot leave part of the header visible.
+                player.scrollTop = player.scrollHeight;
             }
 
             attempts++;
-            if (attempts < 50) {
-                setTimeout(scrollWhenReady, 100);
+            if (attempts < 100) {
+                timer = setTimeout(scrollWhenReady, 100);
             } else {
-                scheduledPlayerScrolls.delete(player);
+                finish();
             }
         };
 
@@ -879,8 +901,9 @@
             document.body.append(element);
             cursorElements.set(clientId, element);
         }
+        const firstName = String(username || '').trim().split(/\s+/)[0];
         element.querySelector('.gowo-shared-cursor-name').textContent =
-            username;
+            firstName || 'Anonymous';
         element.style.setProperty(
             '--gowo-user-color',
             stringToColor(username)

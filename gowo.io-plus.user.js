@@ -5,6 +5,8 @@
 // @version      2026.9.4.8
 // @author       rakkateichou
 // @match        *://gowo.io/orooms/*
+// @match        *://*.obrut.show/embed/*
+// @match        *://alloha.gowo.tv/*
 // @run-at       document-start
 // @grant        none
 // @homepageURL  https://github.com/rakkateichou/gowo.io-plus
@@ -15,6 +17,85 @@
 
 (function() {
     'use strict';
+
+    const cursorBridgeMarker = 'gowo-plus-cursor-bridge-v1';
+
+    function isEditableElement(target) {
+        if (!target) return false;
+        const tagName = String(target.tagName || '').toLowerCase();
+        return tagName === 'input' ||
+            tagName === 'textarea' ||
+            tagName === 'select' ||
+            target.isContentEditable === true ||
+            Boolean(target.closest?.('[contenteditable="true"]'));
+    }
+
+    function initPlayerCursorBridge() {
+        let holding = false;
+        let lastPoint = null;
+
+        const send = (type, point = null) => {
+            window.parent.postMessage({
+                source: cursorBridgeMarker,
+                type,
+                point
+            }, 'https://gowo.io');
+        };
+
+        const pointFromEvent = event => {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            if (width <= 0 || height <= 0) return null;
+            return {
+                x: Math.max(0, Math.min(1, event.clientX / width)),
+                y: Math.max(0, Math.min(1, event.clientY / height))
+            };
+        };
+
+        document.addEventListener('mousemove', event => {
+            lastPoint = pointFromEvent(event);
+            if (holding && lastPoint) send('move', lastPoint);
+        }, true);
+
+        document.addEventListener('keydown', event => {
+            if (event.code !== 'KeyX' || event.repeat || event.ctrlKey ||
+                event.metaKey || event.altKey ||
+                isEditableElement(event.target)) {
+                return;
+            }
+            event.preventDefault();
+            holding = true;
+            send('start', lastPoint);
+        }, true);
+
+        document.addEventListener('keyup', event => {
+            if (event.code !== 'KeyX' || !holding) return;
+            event.preventDefault();
+            holding = false;
+            send('stop');
+        }, true);
+
+        const stop = () => {
+            if (!holding) return;
+            holding = false;
+            send('stop');
+        };
+        window.addEventListener('blur', stop);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState !== 'visible') stop();
+        });
+    }
+
+    if (window.top !== window.self) {
+        const hostname = window.location.hostname.toLowerCase();
+        if (hostname === 'alloha.gowo.tv' ||
+            hostname.endsWith('.obrut.show')) {
+            initPlayerCursorBridge();
+        }
+        return;
+    }
+
+    if (window.location.hostname !== 'gowo.io') return;
 
     function injectCSS(css) {
         const style = document.createElement('style');
@@ -537,6 +618,564 @@
         return `hsl(${hue}, 85%, 70%)`; // bright for black bg
     }
 
+    const cursorRelayUrl = 'wss://jellyfin.rkde.su/gowo-cursor';
+    const cursorSendIntervalMs = 50;
+    const cursorStaleAfterMs = 1600;
+    const cursorMaxTrailPoints = 600;
+    const cursorTrailCurveTension = 0.45;
+    const cursorElements = new Map();
+    const cursorTrails = new Map();
+    const cursorStaleTimers = new Map();
+    let cursorSocket = null;
+    let cursorRoomKey = '';
+    let cursorRelayStarted = false;
+    let cursorRelayJoined = false;
+    let cursorReconnectTimer = null;
+    let cursorReconnectDelay = 1000;
+    let cursorHolding = false;
+    let cursorVisible = false;
+    let cursorLastPointer = null;
+    let cursorLastSentAt = 0;
+    let cursorPendingPoint = null;
+    let cursorSendTimer = null;
+    let cursorRenderFrame = null;
+    let cursorRenderPoint = null;
+    let cursorCaptureOverlay = null;
+
+    const cursorClientId = (() => {
+        const storageKey = 'gowo-plus-cursor-client-id';
+        try {
+            let value = sessionStorage.getItem(storageKey);
+            if (!/^[a-f0-9]{32}$/i.test(value || '')) {
+                const bytes = crypto.getRandomValues(new Uint8Array(16));
+                value = Array.from(bytes, byte =>
+                    byte.toString(16).padStart(2, '0')
+                ).join('');
+                sessionStorage.setItem(storageKey, value);
+            }
+            return value;
+        } catch {
+            const bytes = crypto.getRandomValues(new Uint8Array(16));
+            return Array.from(bytes, byte =>
+                byte.toString(16).padStart(2, '0')
+            ).join('');
+        }
+    })();
+
+    function decodeJwtPayload(token) {
+        try {
+            const encoded = String(token || '').split('.')[1];
+            if (!encoded) return null;
+            const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+            const padded = base64.padEnd(
+                base64.length + ((4 - (base64.length % 4)) % 4),
+                '='
+            );
+            const bytes = Uint8Array.from(
+                atob(padded),
+                character => character.charCodeAt(0)
+            );
+            return JSON.parse(new TextDecoder().decode(bytes));
+        } catch {
+            return null;
+        }
+    }
+
+    function cursorNickname() {
+        const tokenCookie = document.cookie
+            .split(';')
+            .map(part => part.trim())
+            .find(part => part.startsWith('token='));
+        const token = tokenCookie ?
+            decodeURIComponent(tokenCookie.slice('token='.length)) : '';
+        const payload = decodeJwtPayload(token);
+        const candidates = [payload?.user, payload?.data, payload]
+            .filter(candidate => candidate && typeof candidate === 'object');
+
+        for (const candidate of candidates) {
+            const direct = candidate.display_name || candidate.displayName ||
+                candidate.username || candidate.user_name;
+            const fullName = direct || [
+                candidate.name || candidate.first_name || candidate.given_name,
+                candidate.surname || candidate.last_name || candidate.family_name
+            ].filter(Boolean).join(' ');
+            const normalized = String(fullName || '')
+                .replace(/[\u0000-\u001f\u007f]/g, '')
+                .trim();
+            if (normalized) return normalized.slice(0, 40);
+        }
+
+        return `Gowo user ${cursorClientId.slice(0, 4)}`;
+    }
+
+    function getRoomAlias() {
+        const match = window.location.pathname.match(/^\/orooms\/([^/?#]+)/);
+        return match ? decodeURIComponent(match[1]) : '';
+    }
+
+    async function hashCursorRoom(alias) {
+        const bytes = new TextEncoder().encode(
+            `gowo.io-plus-cursor-v1:${alias}`
+        );
+        const digest = await crypto.subtle.digest('SHA-256', bytes);
+        return Array.from(new Uint8Array(digest), byte =>
+            byte.toString(16).padStart(2, '0')
+        ).join('');
+    }
+
+    function getCursorSurface() {
+        const player = document.querySelector('.videoplayer');
+        if (!player) return null;
+        const frames = Array.from(player.querySelectorAll('iframe'));
+        const frame = frames.find(candidate => {
+            if (isBlockedAdUrl(candidate.src)) return false;
+            const rect = candidate.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+        });
+        return frame || player;
+    }
+
+    function cursorPointFromClient(clientX, clientY) {
+        const surface = getCursorSurface();
+        if (!surface) return null;
+        const rect = surface.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0 ||
+            clientX < rect.left || clientX > rect.right ||
+            clientY < rect.top || clientY > rect.bottom) {
+            return null;
+        }
+        return {
+            x: Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)),
+            y: Math.max(0, Math.min(1, (clientY - rect.top) / rect.height))
+        };
+    }
+
+    function removeCursorTrail(clientId) {
+        const trail = cursorTrails.get(clientId);
+        trail?.element.remove();
+        cursorTrails.delete(clientId);
+    }
+
+    function removeCursor(clientId) {
+        cursorElements.get(clientId)?.remove();
+        cursorElements.delete(clientId);
+        removeCursorTrail(clientId);
+        const timer = cursorStaleTimers.get(clientId);
+        if (timer) clearTimeout(timer);
+        cursorStaleTimers.delete(clientId);
+    }
+
+    function cursorTrailElement(clientId, username) {
+        let trail = cursorTrails.get(clientId);
+        if (!trail) {
+            const element = document.createElementNS(
+                'http://www.w3.org/2000/svg',
+                'svg'
+            );
+            element.classList.add('gowo-shared-cursor-trail');
+            element.setAttribute('aria-hidden', 'true');
+            element.setAttribute(
+                'viewBox',
+                `0 0 ${window.innerWidth} ${window.innerHeight}`
+            );
+            element.setAttribute('preserveAspectRatio', 'none');
+            const line = document.createElementNS(
+                'http://www.w3.org/2000/svg',
+                'path'
+            );
+            line.classList.add('gowo-shared-cursor-trail-line');
+            element.append(line);
+            document.body.append(element);
+            trail = { element, line, points: [] };
+            cursorTrails.set(clientId, trail);
+        }
+        trail.element.style.setProperty(
+            '--gowo-user-color',
+            stringToColor(username)
+        );
+        return trail;
+    }
+
+    function cursorTrailPath(points) {
+        if (!points.length) return '';
+        const coordinate = point =>
+            `${point.x.toFixed(1)},${point.y.toFixed(1)}`;
+        if (points.length === 1) return `M ${coordinate(points[0])}`;
+        if (points.length === 2) {
+            return `M ${coordinate(points[0])} L ${coordinate(points[1])}`;
+        }
+
+        let path = `M ${coordinate(points[0])}`;
+        for (let index = 0; index < points.length - 1; index++) {
+            const before = points[Math.max(0, index - 1)];
+            const current = points[index];
+            const next = points[index + 1];
+            const after = points[Math.min(points.length - 1, index + 2)];
+            const scale = cursorTrailCurveTension / 6;
+            const controlOne = {
+                x: current.x + ((next.x - before.x) * scale),
+                y: current.y + ((next.y - before.y) * scale)
+            };
+            const controlTwo = {
+                x: next.x - ((after.x - current.x) * scale),
+                y: next.y - ((after.y - current.y) * scale)
+            };
+            path += ` C ${coordinate(controlOne)} ` +
+                `${coordinate(controlTwo)} ${coordinate(next)}`;
+        }
+        return path;
+    }
+
+    function addCursorTrailPoint(clientId, username, x, y) {
+        const trail = cursorTrailElement(clientId, username);
+        const previous = trail.points[trail.points.length - 1];
+        if (previous && Math.hypot(x - previous.x, y - previous.y) < 1) {
+            return;
+        }
+        trail.points.push({ x, y });
+        if (trail.points.length > cursorMaxTrailPoints) {
+            trail.points.splice(
+                0,
+                trail.points.length - cursorMaxTrailPoints
+            );
+        }
+        trail.line.setAttribute('d', cursorTrailPath(trail.points));
+    }
+
+    function clearCursorTrails() {
+        Array.from(cursorTrails.keys()).forEach(removeCursorTrail);
+    }
+
+    function cursorElement(clientId, username) {
+        let element = cursorElements.get(clientId);
+        if (!element) {
+            element = document.createElement('div');
+            element.className = 'gowo-shared-cursor';
+            element.setAttribute('aria-hidden', 'true');
+            element.innerHTML = `
+                <svg class="gowo-shared-cursor-arrow"
+                    viewBox="0 0 20 28" focusable="false" aria-hidden="true">
+                    <path d="M2 2v20l5.4-5 4.1 9 4-1.8-4.1-8.8H19z"></path>
+                </svg>
+                <span class="gowo-shared-cursor-name"></span>
+            `;
+            if (clientId === cursorClientId) element.classList.add('local');
+            document.body.append(element);
+            cursorElements.set(clientId, element);
+        }
+        element.querySelector('.gowo-shared-cursor-name').textContent =
+            username;
+        element.style.setProperty(
+            '--gowo-user-color',
+            stringToColor(username)
+        );
+        return element;
+    }
+
+    function showCursor(clientId, username, point) {
+        const surface = getCursorSurface();
+        if (!surface || !point) {
+            removeCursor(clientId);
+            return;
+        }
+        const rect = surface.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const x = rect.left + (point.x * rect.width);
+        const y = rect.top + (point.y * rect.height);
+        const element = cursorElement(clientId, username);
+        addCursorTrailPoint(clientId, username, x, y);
+        element.style.left = `${x}px`;
+        element.style.top = `${y}px`;
+        element.classList.add('visible');
+
+        if (clientId === cursorClientId) return;
+        const oldTimer = cursorStaleTimers.get(clientId);
+        if (oldTimer) clearTimeout(oldTimer);
+        cursorStaleTimers.set(clientId, setTimeout(() => {
+            removeCursor(clientId);
+        }, cursorStaleAfterMs));
+    }
+
+    function sendCursorPacket(point = null) {
+        if (!cursorRelayJoined || cursorSocket?.readyState !== WebSocket.OPEN) {
+            return;
+        }
+        const visible = Boolean(point);
+        const packet = {
+            type: 'cursor',
+            visible,
+            username: cursorNickname()
+        };
+        if (point) {
+            packet.x = point.x;
+            packet.y = point.y;
+        }
+        cursorSocket.send(JSON.stringify(packet));
+        cursorVisible = visible;
+        if (visible) cursorLastSentAt = Date.now();
+    }
+
+    function renderOwnCursor(point) {
+        cursorRenderPoint = point;
+        if (cursorRenderFrame !== null) return;
+        cursorRenderFrame = requestAnimationFrame(() => {
+            cursorRenderFrame = null;
+            const nextPoint = cursorRenderPoint;
+            cursorRenderPoint = null;
+            if (cursorHolding && nextPoint) {
+                showCursor(cursorClientId, cursorNickname(), nextPoint);
+            }
+        });
+    }
+
+    function flushPendingCursorPoint() {
+        cursorSendTimer = null;
+        if (!cursorHolding || !cursorPendingPoint) return;
+        const point = cursorPendingPoint;
+        cursorPendingPoint = null;
+        sendCursorPacket(point);
+    }
+
+    function queueCursorPoint(point) {
+        cursorPendingPoint = point;
+        const remaining = cursorSendIntervalMs -
+            (Date.now() - cursorLastSentAt);
+        if (remaining <= 0) {
+            if (cursorSendTimer) clearTimeout(cursorSendTimer);
+            cursorSendTimer = null;
+            flushPendingCursorPoint();
+        } else if (!cursorSendTimer) {
+            cursorSendTimer = setTimeout(flushPendingCursorPoint, remaining);
+        }
+    }
+
+    function syncCursorCaptureOverlay() {
+        if (!cursorCaptureOverlay) return;
+        const surface = getCursorSurface();
+        if (!surface) return;
+        const rect = surface.getBoundingClientRect();
+        Object.assign(cursorCaptureOverlay.style, {
+            left: `${rect.left}px`,
+            top: `${rect.top}px`,
+            width: `${rect.width}px`,
+            height: `${rect.height}px`
+        });
+    }
+
+    function showCursorCaptureOverlay() {
+        if (!cursorCaptureOverlay) {
+            cursorCaptureOverlay = document.createElement('div');
+            cursorCaptureOverlay.className = 'gowo-cursor-capture';
+            cursorCaptureOverlay.setAttribute('aria-hidden', 'true');
+            document.body.append(cursorCaptureOverlay);
+        }
+        syncCursorCaptureOverlay();
+    }
+
+    function hideOwnCursor() {
+        if (cursorSendTimer) clearTimeout(cursorSendTimer);
+        cursorSendTimer = null;
+        cursorPendingPoint = null;
+        if (cursorRenderFrame !== null) {
+            cancelAnimationFrame(cursorRenderFrame);
+            cursorRenderFrame = null;
+        }
+        cursorRenderPoint = null;
+        cursorCaptureOverlay?.remove();
+        cursorCaptureOverlay = null;
+        removeCursor(cursorClientId);
+        if (cursorVisible) sendCursorPacket();
+        cursorVisible = false;
+    }
+
+    function startCursorDrawing(point = null) {
+        if (!getCursorSurface()) return;
+        cursorHolding = true;
+        showCursorCaptureOverlay();
+        if (point) {
+            renderOwnCursor(point);
+            queueCursorPoint(point);
+        }
+    }
+
+    function stopCursorDrawing() {
+        if (!cursorHolding && !cursorVisible) return;
+        cursorHolding = false;
+        hideOwnCursor();
+    }
+
+    function handleCursorRelayMessage(event) {
+        let message;
+        try {
+            message = JSON.parse(event.data);
+        } catch {
+            return;
+        }
+        if (message?.type !== 'cursor' ||
+            typeof message.client !== 'string' ||
+            message.client === cursorClientId) {
+            return;
+        }
+        if (message.visible === false) {
+            removeCursor(message.client);
+            return;
+        }
+        const x = Number(message.x);
+        const y = Number(message.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y) ||
+            x < 0 || x > 1 || y < 0 || y > 1) {
+            return;
+        }
+        showCursor(
+            message.client,
+            String(message.username || 'Anonymous').slice(0, 40),
+            { x, y }
+        );
+    }
+
+    function scheduleCursorRelayReconnect() {
+        if (cursorReconnectTimer || !cursorRelayStarted) return;
+        cursorReconnectTimer = setTimeout(() => {
+            cursorReconnectTimer = null;
+            connectCursorRelay();
+        }, cursorReconnectDelay);
+        cursorReconnectDelay = Math.min(cursorReconnectDelay * 2, 30000);
+    }
+
+    function connectCursorRelay() {
+        if (!cursorRoomKey ||
+            cursorSocket?.readyState === WebSocket.OPEN ||
+            cursorSocket?.readyState === WebSocket.CONNECTING) {
+            return;
+        }
+        cursorRelayJoined = false;
+        const socket = new WebSocket(cursorRelayUrl);
+        cursorSocket = socket;
+
+        socket.addEventListener('open', () => {
+            if (cursorSocket !== socket) return;
+            cursorReconnectDelay = 1000;
+            socket.send(JSON.stringify({
+                type: 'join',
+                room: cursorRoomKey,
+                client: cursorClientId,
+                username: cursorNickname()
+            }));
+        });
+        socket.addEventListener('message', event => {
+            if (cursorSocket !== socket) return;
+            let message;
+            try {
+                message = JSON.parse(event.data);
+            } catch {
+                return;
+            }
+            if (message?.type === 'joined') {
+                cursorRelayJoined = true;
+                return;
+            }
+            handleCursorRelayMessage(event);
+        });
+        socket.addEventListener('close', () => {
+            if (cursorSocket !== socket) return;
+            cursorRelayJoined = false;
+            cursorSocket = null;
+            Array.from(cursorElements.keys())
+                .filter(clientId => clientId !== cursorClientId)
+                .forEach(removeCursor);
+            scheduleCursorRelayReconnect();
+        });
+        socket.addEventListener('error', () => {
+            // The close handler performs a quiet retry.
+        });
+    }
+
+    async function startCursorRelay() {
+        if (cursorRelayStarted) return;
+        cursorRelayStarted = true;
+        const alias = getRoomAlias();
+        if (!alias) return;
+        try {
+            cursorRoomKey = await hashCursorRoom(alias);
+            connectCursorRelay();
+        } catch {
+            cursorRelayStarted = false;
+        }
+    }
+
+    document.addEventListener('keydown', event => {
+        if (event.code !== 'KeyX' || event.repeat || event.ctrlKey ||
+            event.metaKey || event.altKey || isEditableElement(event.target)) {
+            return;
+        }
+        event.preventDefault();
+        const point = cursorLastPointer ? cursorPointFromClient(
+            cursorLastPointer.clientX,
+            cursorLastPointer.clientY
+        ) : null;
+        startCursorDrawing(point);
+    }, true);
+
+    document.addEventListener('keyup', event => {
+        if (event.code !== 'KeyX' || !cursorHolding) return;
+        event.preventDefault();
+        stopCursorDrawing();
+    }, true);
+
+    document.addEventListener('mousemove', event => {
+        cursorLastPointer = {
+            clientX: event.clientX,
+            clientY: event.clientY
+        };
+        if (!cursorHolding) return;
+        const point = cursorPointFromClient(event.clientX, event.clientY);
+        if (point) {
+            renderOwnCursor(point);
+            queueCursorPoint(point);
+        }
+    }, true);
+
+    window.addEventListener('message', event => {
+        const message = event.data;
+        if (message?.source !== cursorBridgeMarker ||
+            !['https://alloha.gowo.tv'].includes(event.origin) &&
+            !/^https:\/\/[^/]+\.obrut\.show$/.test(event.origin)) {
+            return;
+        }
+        const surface = getCursorSurface();
+        if (!(surface instanceof HTMLIFrameElement) ||
+            event.source !== surface.contentWindow) {
+            return;
+        }
+        if (message.type === 'stop') {
+            stopCursorDrawing();
+            return;
+        }
+        const point = message.point;
+        const normalizedPoint = point &&
+            Number.isFinite(Number(point.x)) &&
+            Number.isFinite(Number(point.y)) ? {
+                x: Math.max(0, Math.min(1, Number(point.x))),
+                y: Math.max(0, Math.min(1, Number(point.y)))
+            } : null;
+        if (message.type === 'start') {
+            startCursorDrawing(normalizedPoint);
+        } else if (message.type === 'move' && cursorHolding &&
+            normalizedPoint) {
+            renderOwnCursor(normalizedPoint);
+            queueCursorPoint(normalizedPoint);
+        }
+    });
+
+    window.addEventListener('blur', stopCursorDrawing);
+    window.addEventListener('resize', () => {
+        clearCursorTrails();
+        syncCursorCaptureOverlay();
+    });
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible') stopCursorDrawing();
+    });
+
     const messageTimeFormatter = new Intl.DateTimeFormat(undefined, {
         hour: '2-digit',
         minute: '2-digit',
@@ -640,6 +1279,85 @@
         .message[data-gowo-message-time]:hover::after {
             opacity: 1;
             transform: translateY(0);
+        }
+
+        .gowo-cursor-capture {
+            position: fixed;
+            z-index: 24998;
+            cursor: crosshair;
+            pointer-events: auto;
+            touch-action: none;
+        }
+        .gowo-shared-cursor {
+            --gowo-user-color: #fff;
+            position: fixed;
+            z-index: 25000;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+            transform: translate(-2px, -2px);
+            transition: left 45ms linear, top 45ms linear,
+                opacity 100ms ease;
+        }
+        .gowo-shared-cursor.local {
+            transition: opacity 100ms ease;
+        }
+        .gowo-shared-cursor.visible { opacity: 1; }
+        .gowo-shared-cursor-trail {
+            --gowo-user-color: #fff;
+            position: fixed;
+            inset: 0;
+            z-index: 24999;
+            width: 100vw;
+            height: 100vh;
+            overflow: visible;
+            pointer-events: none;
+        }
+        .gowo-shared-cursor-trail-line {
+            fill: none;
+            stroke: var(--gowo-user-color);
+            stroke-width: 3.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            vector-effect: non-scaling-stroke;
+            filter: drop-shadow(0 0 2px #000)
+                drop-shadow(0 0 4px var(--gowo-user-color))
+                drop-shadow(0 0 8px var(--gowo-user-color));
+        }
+        .gowo-shared-cursor-arrow {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 20px;
+            height: 28px;
+            overflow: visible;
+            filter: drop-shadow(0 0 2px #000)
+                drop-shadow(0 0 4px var(--gowo-user-color))
+                drop-shadow(0 0 9px var(--gowo-user-color));
+        }
+        .gowo-shared-cursor-arrow path {
+            fill: #fff;
+            stroke: #050505;
+            stroke-width: 1.5;
+            stroke-linejoin: round;
+        }
+        .gowo-shared-cursor-name {
+            position: absolute;
+            left: 17px;
+            top: 19px;
+            max-width: 10rem;
+            padding: 0.16rem 0.42rem;
+            overflow: hidden;
+            border: 1px solid var(--gowo-user-color);
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.78);
+            box-shadow: 0 0 10px var(--gowo-user-color);
+            color: var(--gowo-user-color);
+            font: 700 0.65rem/1.25 system-ui, sans-serif;
+            text-overflow: ellipsis;
+            text-shadow: 0 1px 2px #000;
+            white-space: nowrap;
         }
 
         .gowo-chat-emote {
@@ -910,5 +1628,6 @@
         subtree: true
     });
 
+    startCursorRelay();
     apply();
 })();

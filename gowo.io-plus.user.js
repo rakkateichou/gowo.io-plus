@@ -1276,12 +1276,6 @@
             }
         }
 
-        const actions = el.querySelector('.actions');
-        const innerDiv = el.querySelector('div');
-        if (actions && innerDiv) {
-            innerDiv.append(actions);
-        }
-
         el.dataset.formatted = '1';
     }
 
@@ -1301,7 +1295,20 @@
 
         app-icon-crown { position: relative!important; bottom: 3px; right: 3px; left: unset!important; top: unset!important}
         .message app-picture { display: none; }
-        .message { padding: 0 8px!important; margin-bottom: 5px!important; }
+        .message {
+            position: relative!important;
+            padding: 0 8px!important;
+            margin-bottom: 5px!important;
+        }
+        .message .actions {
+            position: absolute!important;
+            top: 0;
+            right: 8px;
+            z-index: 4;
+            padding-left: 4px!important;
+            border-radius: 4px;
+            background: #000;
+        }
         .message .text { margin-left: 0px!important; }
         .message .text div { width: auto!important; }
         .message.gowo-message-has-reply .text {

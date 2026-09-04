@@ -83,6 +83,46 @@
         });
     }
 
+    const scheduledPlayerScrolls = new WeakSet();
+    const completedPlayerScrolls = new WeakSet();
+
+    function scheduleInitialPlayerScroll() {
+        const player = document.querySelector('.videoplayer');
+        if (!player || scheduledPlayerScrolls.has(player) ||
+            completedPlayerScrolls.has(player)) {
+            return;
+        }
+
+        scheduledPlayerScrolls.add(player);
+        let attempts = 0;
+
+        const scrollWhenReady = () => {
+            if (!player.isConnected) {
+                scheduledPlayerScrolls.delete(player);
+                return;
+            }
+
+            if (player.scrollHeight > player.clientHeight) {
+                // Let the Angular player finish its current layout before scrolling.
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    if (!player.isConnected) return;
+                    player.scrollTop = player.scrollHeight - player.clientHeight;
+                    completedPlayerScrolls.add(player);
+                }));
+                return;
+            }
+
+            attempts++;
+            if (attempts < 50) {
+                setTimeout(scrollWhenReady, 100);
+            } else {
+                scheduledPlayerScrolls.delete(player);
+            }
+        };
+
+        scrollWhenReady();
+    }
+
     function stringToColor(str) {
         // FNV-1a-ish hash
         let hash = 2166136261;
@@ -154,6 +194,7 @@
 
     function apply() {
         removeInjectedAds();
+        scheduleInitialPlayerScroll();
 
         remove([
             '.wrap-head-room',

@@ -1469,6 +1469,7 @@
             outline: none!important;
             box-shadow: 0 0 0 1px #fff;
         }
+        app-chat-messages-room .chat-footer button.call,
         #${emoteToggleId},
         #${sendButtonId} {
             height: var(--gowo-chat-control-height);
@@ -1484,6 +1485,21 @@
             transition: background 120ms ease, color 120ms ease,
                 border-color 120ms ease, box-shadow 120ms ease;
         }
+        app-chat-messages-room .chat-footer button.call {
+            width: var(--gowo-chat-control-height)!important;
+            min-width: var(--gowo-chat-control-height)!important;
+            flex: 0 0 var(--gowo-chat-control-height)!important;
+            margin: 0 5px 0 0!important;
+            padding: 0!important;
+            line-height: 1!important;
+        }
+        app-chat-messages-room .chat-footer button.call > img {
+            width: 22px!important;
+            height: 22px!important;
+            opacity: 0.75;
+            filter: invert(80%);
+            transition: filter 120ms ease, opacity 120ms ease;
+        }
         #${emoteToggleId} {
             width: var(--gowo-chat-control-height);
             flex: 0 0 var(--gowo-chat-control-height);
@@ -1493,13 +1509,21 @@
             font-size: 20px!important;
             line-height: 1!important;
         }
+        app-chat-messages-room .chat-footer button.call:hover,
+        app-chat-messages-room .chat-footer button.call.active-call,
         #${emoteToggleId}:hover,
         #${emoteToggleId}[aria-expanded="true"],
         #${sendButtonId}:hover {
-            border-color: #fff;
-            background: #fff;
-            color: #000;
+            border-color: #fff!important;
+            background: #fff!important;
+            color: #000!important;
         }
+        app-chat-messages-room .chat-footer button.call:hover > img,
+        app-chat-messages-room .chat-footer button.call.active-call > img {
+            opacity: 1;
+            filter: none;
+        }
+        app-chat-messages-room .chat-footer button.call:focus-visible,
         #${emoteToggleId}:focus-visible,
         #${sendButtonId}:focus-visible {
             border-color: #fff;
@@ -1583,8 +1607,6 @@
         }
 
         textarea { background: #000; color: #fff; }
-        .call { background: #000!important; }
-        .call > img { filter: invert(80%); }
 
         html[data-gowo-hide-call-button="true"] button.call {
             display: none!important;

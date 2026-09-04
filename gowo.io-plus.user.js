@@ -618,7 +618,7 @@
         return `hsl(${hue}, 85%, 70%)`; // bright for black bg
     }
 
-    const cursorRelayUrl = 'wss://jellyfin.rkde.su/gowo-cursor';
+    const cursorRelayUrl = 'wss://n8n.rkde.su/gowo-cursor';
     const cursorSendIntervalMs = 50;
     const cursorStaleAfterMs = 1600;
     const cursorMaxTrailPoints = 600;

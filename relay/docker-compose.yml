@@ -1,0 +1,23 @@
+services:
+  gowo-cursor-relay:
+    build: .
+    image: gowo-cursor-relay:1.0
+    container_name: gowo-cursor-relay
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - caddy_mesh
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+networks:
+  caddy_mesh:
+    external: true

@@ -8,6 +8,7 @@ A Tampermonkey userscript that enhances Gowo.io rooms.
 - Consistent nickname colours and compact consecutive messages
 - Best-effort removal of Gowo.io ad loaders and injected video-ad overlays
 - Starts the video pane below the room controls, which remain available by scrolling up
+- Compact settings typography and a saved, default-on option to hide the call button
 
 ## Install
 

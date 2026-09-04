@@ -83,6 +83,87 @@
         });
     }
 
+    const hideCallButtonPreferenceKey = 'gowo-plus-hide-call-button';
+    const hideCallButtonToggleId = 'gowo-plus-hide-call-button-toggle';
+    let hideCallButton = true;
+
+    function readHideCallButtonPreference() {
+        try {
+            const storedValue = localStorage.getItem(hideCallButtonPreferenceKey);
+            return storedValue === null ? true : storedValue !== 'false';
+        } catch {
+            return true;
+        }
+    }
+
+    function setCallButtonHidden(hidden, persist = false) {
+        hideCallButton = Boolean(hidden);
+        document.documentElement.setAttribute(
+            'data-gowo-hide-call-button',
+            String(hideCallButton)
+        );
+
+        if (persist) {
+            try {
+                localStorage.setItem(
+                    hideCallButtonPreferenceKey,
+                    String(hideCallButton)
+                );
+            } catch {
+                // Keep the setting for this page when storage is unavailable.
+            }
+        }
+
+        const toggle = document.getElementById(hideCallButtonToggleId);
+        if (toggle && toggle.checked !== hideCallButton) {
+            toggle.checked = hideCallButton;
+        }
+    }
+
+    function injectCallButtonSetting() {
+        const form = document.querySelector(
+            'app-chat-settings-room .settings form'
+        );
+        if (!form) return;
+
+        const existingToggle = document.getElementById(hideCallButtonToggleId);
+        if (existingToggle) {
+            existingToggle.checked = hideCallButton;
+            return;
+        }
+
+        const header = form.firstElementChild;
+        if (!header) return;
+
+        const row = document.createElement('div');
+        row.className = 'gowo-setting-row';
+        row.innerHTML = `
+            <label class="gowo-setting-label" for="${hideCallButtonToggleId}">
+                <input type="checkbox" id="${hideCallButtonToggleId}">
+                <span class="gowo-switch" aria-hidden="true"></span>
+                <span>Скрывать кнопку звонка</span>
+            </label>
+        `;
+
+        const divider = document.createElement('hr');
+        divider.className = 'gowo-setting-divider';
+        header.after(row, divider);
+
+        const toggle = row.querySelector(`#${hideCallButtonToggleId}`);
+        toggle.checked = hideCallButton;
+        toggle.addEventListener('change', () => {
+            setCallButtonHidden(toggle.checked, true);
+        });
+    }
+
+    setCallButtonHidden(readHideCallButtonPreference());
+
+    window.addEventListener('storage', event => {
+        if (event.key === hideCallButtonPreferenceKey) {
+            setCallButtonHidden(readHideCallButtonPreference());
+        }
+    });
+
     const scheduledPlayerScrolls = new WeakSet();
     const completedPlayerScrolls = new WeakSet();
 
@@ -190,11 +271,80 @@
         textarea { background: #000; color: #fff; }
         .call { background: #000!important; }
         .call > img { filter: invert(80%); }
+
+        html[data-gowo-hide-call-button="true"] button.call {
+            display: none!important;
+        }
+
+        app-chat-settings-room .settings {
+            font-size: 13px!important;
+            line-height: 1.35!important;
+        }
+        app-chat-settings-room .settings h3 {
+            font-size: 15px!important;
+            line-height: 1.3!important;
+        }
+        app-chat-settings-room .settings label,
+        app-chat-settings-room .settings label > span,
+        app-chat-settings-room .settings p,
+        app-chat-settings-room .settings input,
+        app-chat-settings-room .settings button,
+        app-chat-settings-room .settings .label {
+            font-size: 13px!important;
+            line-height: 1.35!important;
+        }
+
+        .gowo-setting-row { padding: 4px 0; }
+        .gowo-setting-label {
+            display: flex!important;
+            align-items: center!important;
+            gap: 10px;
+            cursor: pointer;
+        }
+        .gowo-setting-label > input {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+        }
+        .gowo-switch {
+            position: relative;
+            display: block;
+            flex: 0 0 42px;
+            width: 42px;
+            height: 24px;
+            border: 1px solid #7900d9;
+            border-radius: 999px;
+            background: transparent;
+            transition: background 120ms ease;
+        }
+        .gowo-switch::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #7900d9;
+            transition: transform 120ms ease;
+        }
+        .gowo-setting-label > input:checked + .gowo-switch {
+            background: #4c007d;
+        }
+        .gowo-setting-label > input:checked + .gowo-switch::after {
+            transform: translateX(18px);
+        }
+        .gowo-setting-label > input:focus-visible + .gowo-switch {
+            outline: 2px solid #b76cff;
+            outline-offset: 2px;
+        }
     `));
 
     function apply() {
         removeInjectedAds();
         scheduleInitialPlayerScroll();
+        injectCallButtonSetting();
 
         remove([
             '.wrap-head-room',

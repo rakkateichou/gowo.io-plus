@@ -1,0 +1,28 @@
+name: Test userscript
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - gowo.io-plus.user.js
+      - gowo.io-plus.js
+      - test/**
+      - .github/workflows/test-userscript.yml
+  pull_request:
+    paths:
+      - gowo.io-plus.user.js
+      - gowo.io-plus.js
+      - test/**
+      - .github/workflows/test-userscript.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: node --check gowo.io-plus.user.js
+      - run: node --check gowo.io-plus.js
+      - run: node --test test/*.test.mjs

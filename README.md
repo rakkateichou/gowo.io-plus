@@ -8,7 +8,7 @@ A Tampermonkey userscript that enhances Gowo.io rooms.
 - Consistent nickname colours and compact consecutive messages
 - Local receive/send time shown when hovering over a live chat message
 - Reply text always starts below its quoted message
-- A 46-emote 7TV picker with `:token:` insertion and inline animated rendering
+- A 48-emote 7TV picker with `:token:` insertion and inline animated rendering
 - A dedicated Send button to the right of the chat field
 - Shared coloured cursors and smooth trails while holding `X` over the player
 - Best-effort removal of Gowo.io ad loaders and injected video-ad overlays
@@ -17,9 +17,9 @@ A Tampermonkey userscript that enhances Gowo.io rooms.
 
 ## 7TV emotes
 
-Use the **7TV** button beside the chat box, or type a token such as `:pog:`.
+Use the **☺** button beside the chat box, or type a token such as `:pog:`.
 The token stays ordinary Gowo.io chat text and is rendered as an emote for
-people running Gowo.io+. The fixed 46-emote catalogue matches the one in the
+people running Gowo.io+. The fixed 48-emote catalogue matches the one in the
 [JellyWatchParty fork](https://github.com/rakkateichou/JellyWatchParty).
 
 ## Shared cursor drawing
@@ -38,16 +38,52 @@ viewers need Gowo.io+ installed to see the drawing.
 
 [Install Gowo.io+](https://raw.githubusercontent.com/rakkateichou/gowo.io-plus/main/gowo.io-plus.user.js)
 
-Tampermonkey will open its installation screen. After installation, it checks the
-URLs embedded in the userscript for newer versions.
+Tampermonkey will open its installation screen. Install the loader once and
+allow its connection to `raw.githubusercontent.com`. It loads the enhancer
+automatically when you open a room, including the supported player frames.
 
 ## Automatic updates
 
-Every change pushed to `gowo.io-plus.user.js` on `main` automatically receives a
-higher `@version`. Tampermonkey uses that version together with `@updateURL` and
-`@downloadURL` to detect and install updates.
+`gowo.io-plus.user.js` is now a small loader. On every page load it fetches
+`gowo.io-plus.js` from this repository's `main` branch, bypassing the browser's
+cache. Future feature changes arrive when you open or refresh Gowo, without
+clicking an update link or waiting for Tampermonkey's script update schedule.
+GitHub's CDN can take a little time to propagate a push.
 
-Tampermonkey controls the update interval and whether detected updates are
-installed automatically. For zero-click updates, keep Tampermonkey's
-**Automatic installation** setting enabled. A userscript cannot override a
-user's Tampermonkey update preferences.
+The last runtime that started successfully is saved in Tampermonkey's private
+storage. If GitHub is unavailable, returns an invalid response, or takes longer
+than 2.5 seconds, the loader uses that saved copy for the page. A first install
+has no offline copy and waits up to 10 seconds. An already running page keeps
+its version until refreshed, avoiding duplicate chat handlers or interrupted
+drawing. A runtime startup error is logged and does not overwrite the old cache;
+the loader will not start a second runtime over partially initialized code.
+
+**Existing users:** versions before this loader need one final Tampermonkey
+update to receive it. The install URL, name, and namespace remain the same, so
+the normal update check can migrate existing installations. Tampermonkey may
+ask you to approve the new network/storage permissions once. If automatic
+installation is disabled, install/update the loader from the link above once.
+After migration, routine feature updates need only a page refresh.
+
+The loader itself still has `@updateURL`, `@downloadURL`, and an automatically
+bumped `@version` for occasional loader or permission changes.
+
+## Development
+
+Edit **`gowo.io-plus.js`** for layout, emotes, cursors, or other feature changes.
+Keep its runtime start/end marker comments. Push it to `main` after validation:
+
+```sh
+node --check gowo.io-plus.user.js
+node --check gowo.io-plus.js
+node --test test/*.test.mjs
+```
+
+No userscript version bump is needed for runtime changes. Only edit the loader
+when changing its loading behavior, match rules, or permissions; those changes
+still need a normal Tampermonkey update. The runtime is executable code trusted
+from this repository, so users who install the loader opt into its future code
+updates. Requests to GitHub are anonymous and contain no Gowo login token.
+
+Loader API details: [Tampermonkey requests](https://www.tampermonkey.net/documentation.php?locale=en&q=GM_xmlhttpRequest),
+[permissions](https://www.tampermonkey.net/documentation.php?locale=en&q=grant).

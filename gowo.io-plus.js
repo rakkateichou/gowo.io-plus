@@ -13,12 +13,14 @@
         let nativeShare = null;
         let nativeShareBackground = null;
         let ready = false;
+        let acknowledgeState = false;
         let scheduled = false;
         const send = (type, extra = {}) => window.parent.postMessage({
             source: toolbarBridgeMarker, type, ...extra
         }, 'https://gowo.io');
         const setReady = value => {
-            if (ready === value) return;
+            if (ready === value && !acknowledgeState) return;
+            acknowledgeState = false;
             ready = value;
             send('ready', { ready });
         };
@@ -121,6 +123,9 @@
                     typeof platform?.label !== 'string' || platform.label.length > 100) ||
                 typeof message.warning !== 'string' || message.warning.length > 2000) return;
             state = message;
+            // The parent can receive iframe.onload after our first ready event.
+            // A fresh state message must acknowledge readiness even if unchanged.
+            acknowledgeState = true;
             schedule();
         });
         const observer = new MutationObserver(records => {

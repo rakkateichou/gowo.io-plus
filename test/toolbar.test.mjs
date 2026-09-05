@@ -161,6 +161,10 @@ test('frame appends controls after audio and refresh after background-free nativ
     assert.ok(h.document.querySelector('#native-share > pjsdiv > pjsdiv').classList.contains('gowo-native-share-background'));
     assert.equal(h.document.querySelector('#player_playlist1').parentElement.id, 'oframeplayer');
     assert.equal(h.messages.at(-1).message.ready, true);
+    const beforeLoad = h.messages.length;
+    h.receive(state); // Parent requests readiness again after iframe.onload.
+    assert.equal(h.messages.length, beforeLoad + 1);
+    assert.equal(h.messages.at(-1).message.ready, true);
     h.receive({ ...state, warning: '' });
     assert.ok(h.document.querySelector('.gowo-player-admin-notice').hidden);
     h.mutate();

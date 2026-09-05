@@ -8,6 +8,8 @@ A userscript for Tampermonkey and Safari Userscripts that enhances Gowo.io rooms
 - Consistent nickname colours and compact consecutive messages
 - Local receive/send time shown when hovering over a live chat message
 - Reply text always starts below its quoted message
+- First-name-only quoted authors, using their chat nickname colour
+- Simple, uncircled chat-header icons with the original controls and tooltips
 - A responsive 48-emote 7TV picker with `:token:` insertion and inline animated rendering
 - A dedicated Send button to the right of the chat field
 - Shared coloured cursors and smooth trails while holding `X` over the player

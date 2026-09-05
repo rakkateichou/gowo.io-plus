@@ -1428,6 +1428,33 @@
 
     let lastFullNickname = null;
 
+    const replyAuthorNames = new WeakMap();
+
+    function formatReplyAuthors() {
+        document.querySelectorAll(
+            '.message .text__reply__name, app-chat-messages-room .reply__content .name'
+        ).forEach(author => {
+            const currentName = author.textContent.trim();
+            if (!currentName) {
+                replyAuthorNames.delete(author);
+                return;
+            }
+            const previous = replyAuthorNames.get(author);
+            // Keep hashing the original full name, just like the chat header.
+            // Angular can also reuse this node for a different quoted author.
+            const fullName = previous && currentName === previous.shortName ?
+                previous.fullName : currentName;
+            const shortName = fullName.split(/\s+/)[0];
+            if (author.textContent !== shortName) author.textContent = shortName;
+            if (previous?.fullName === fullName &&
+                author.style.color === previous.appliedColor &&
+                author.style.getPropertyPriority('color') === 'important') return;
+            // Gowo marks quoted names white with !important in its stylesheet.
+            author.style.setProperty('color', stringToColor(fullName), 'important');
+            replyAuthorNames.set(author, { fullName, shortName, appliedColor: author.style.color });
+        });
+    }
+
     function formatMessage(el) {
         const isUserMessage = Boolean(
             el.id && el.querySelector(':scope > .user')
@@ -1497,6 +1524,14 @@
 
         .chat { border-left: 0px!important; }
         .chat-header { justify-content: center!important; }
+        .chat-header .actions > img[alt="settings room"],
+        .chat-header .actions > img[alt="list room"],
+        .chat-header .actions > img[alt="users in chat"] {
+            /* These SVGs have a separate outer ring. Mask only that rim, keeping
+               the native glyph, tooltip, click handler and full image hit area. */
+            -webkit-mask-image: radial-gradient(circle closest-side, #000 75%, transparent 76%);
+            mask-image: radial-gradient(circle closest-side, #000 75%, transparent 76%);
+        }
 
         app-icon-crown { position: relative!important; bottom: 3px; right: 3px; left: unset!important; top: unset!important}
         .message app-picture { display: none; }
@@ -1899,6 +1934,7 @@
         syncRoomToolbar();
         injectCallButtonSetting();
         injectEmotePicker();
+        formatReplyAuthors();
 
         remove([
             '.wrap-head-room',

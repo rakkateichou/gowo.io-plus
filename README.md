@@ -22,7 +22,7 @@ The token stays ordinary Gowo.io chat text and is rendered as an emote for
 people running Gowo.io+. The fixed 47-emote catalogue matches the one in the
 [JellyWatchParty fork](https://github.com/rakkateichou/JellyWatchParty).
 The picker uses fewer columns in narrow chat panels and scrolls vertically.
-The catalogue includes hi, NOOOO, catJAM, CAUGHT, peepoRun and TrollDespair;
+The catalogue includes hi, NOOOO, catJAM, CAUGHT, peepoRun, TrollDespair and Prayge;
 retired tokens still render in existing messages.
 
 ## Shared cursor drawing

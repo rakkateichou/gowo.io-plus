@@ -170,7 +170,7 @@
         { token: ':salute:', label: 'Salute', id: '01F6Q8CVB000015Y8FNQBA5VBR' },
         { token: ':chef:', label: 'Chef', id: '01FFR5Q96R0007P57XYW0BJAXG' },
         { token: ':party:', label: 'Party', id: '01F6Q93YK8000EQZ7QARQERNWC' },
-        { token: ':partyparrot:', label: 'PartyParrot', id: '01FKSDK14G0008TM5NY9QEG0QV' },
+        { token: ':prayge:', label: 'Prayge', id: '01F6NACCD80006SZ7ZW5FMWKWK' },
         { token: ':heart:', label: 'Heart', id: '01F6NPP6YG00013ACMMJP3W06V' },
         { token: ':raintime:', label: 'RainTime', id: '01FCY771D800007PQ2DF3GDTN6' },
         { token: ':petpet:', label: 'PETPET', id: '01FE3XY508000AA32JP519W2EW' },
@@ -205,6 +205,7 @@
     ]);
     // Retired picker entries remain supported in existing chat history.
     const sevenTvLegacyEmotes = [
+        { token: ':partyparrot:', label: 'PartyParrot', id: '01FKSDK14G0008TM5NY9QEG0QV' },
         { token: ':feelsdankman:', label: 'FeelsDankMan', id: '01GB9W8JN80004CKF2H1TWA99H' },
         { token: ':billyapprove:', label: 'BillyApprove', id: '01GB2S7H7000018VJGJ4A9BMFS' },
         { token: ':forsenpls:', label: 'forsenPls', id: '01GB8EQNJ8000497KFBZWNSDFZ' },

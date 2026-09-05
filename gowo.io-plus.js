@@ -179,22 +179,21 @@
         { token: ':pepepls:', label: 'PepePls', id: '01GAFTZ9K80003DHH026MC7JW0' },
         { token: ':peepohappy:', label: 'peepoHappy', id: '01GAZ199Z8000FEWHS6AT5QZV0' },
         { token: ':peeposad:', label: 'peepoSad', id: '01GAZ4SBX80007YCE2RXBT44B2' },
-        { token: ':feelsdankman:', label: 'FeelsDankMan', id: '01GB9W8JN80004CKF2H1TWA99H' },
+        { token: ':peeporun:', label: 'peepoRun', id: '01F6Q045KR0005589X3BDQHRAY' },
         { token: ':waytoodank:', label: 'WAYTOODANK', id: '01G98W833R0000BRQD106P0ZNT' },
-        { token: ':billyapprove:', label: 'BillyApprove', id: '01GB2S7H7000018VJGJ4A9BMFS' },
-        { token: ':forsenpls:', label: 'forsenPls', id: '01GB8EQNJ8000497KFBZWNSDFZ' },
-        { token: ':aliendance:', label: 'AlienDance', id: '01GB2ZJFBG000DTBJYANG8XYFP' },
-        { token: ':basedgod:', label: 'BasedGod', id: '01GB9W2CDG000BFSD141G0MGSA' },
+        { token: ':hi:', label: 'hi', id: '01GX6M9TRR000DJJ63WGMEA4Z8' },
+        { token: ':noooo:', label: 'NOOOO', id: '01F6MKTFTG0009C9ZSNZTFV2ZF' },
+        { token: ':caught:', label: 'CAUGHT', id: '01H0SQNM9R0005HNCSM10SYJEQ' },
+        { token: ':catjam:', label: 'catJAM', id: '01F6MQ33FG000FFJ97ZB8MWV52' },
         { token: ':peepopls:', label: 'peepoPls', id: '01HM524VE80004SKSHMCZWXH1T' },
         { token: ':teatime:', label: 'TeaTime', id: '01HM4P26CR000449DZBT4FVMA5' },
         { token: ':pianotime:', label: 'PianoTime', id: '01G98V81Q80000BRQD106P0ZEK' },
-        { token: ':nymncorn:', label: 'nymnCorn', id: '01HM6NJ2X000035ZKVAPWBNW26' },
         { token: ':winetime:', label: 'WineTime', id: '01HM4PGHC80007635TAZG67FT5' },
         { token: ':nanaayaya:', label: 'nanaAYAYA', id: '01FTEZEE900001E12995B12GR4' },
         { token: ':biblethump:', label: 'BibleThump', id: '01J8NMZ2HG0005G1FWF2H9Y615' },
         { token: ':glorp:', label: 'glorp', id: '01H16FA16G0005EZED5J0EY7KN' },
         { token: ':stare:', label: 'Stare', id: '01GG3YGWK8000DWE419062SG28' },
-        { token: ':acestare:', label: 'aceStare', id: '01JY2MX5BE5BVWWFV153ANMMHZ' },
+        { token: ':trolldespair:', label: 'TrollDespair', id: '01EZPGMA6G00047EF100A1SBTF' },
         { token: ':ayaya:', label: 'AYAYA', id: '01GB32XE6R00018VJGJ4A9BNCV' },
         { token: ':rareparrot:', label: 'RareParrot', id: '01GB4XE3ZR000DKFRGM9Q1M7VS' },
         { token: ':feelsweirdman:', label: 'FeelsWeirdMan', id: '01GB4FWTR8000DGEZ8VYY59RBN' },
@@ -204,10 +203,21 @@
         { token: ':7cinema:', label: '7Cinema', id: '01GBFDVP18000CRDCG0DV7KEMY' },
         { token: ':xdx:', label: 'xdx', id: '01FZBTBQDG000DX0N9GHCRXYPH' }
     ]);
+    // Retired picker entries remain supported in existing chat history.
+    const sevenTvLegacyEmotes = [
+        { token: ':feelsdankman:', label: 'FeelsDankMan', id: '01GB9W8JN80004CKF2H1TWA99H' },
+        { token: ':billyapprove:', label: 'BillyApprove', id: '01GB2S7H7000018VJGJ4A9BMFS' },
+        { token: ':forsenpls:', label: 'forsenPls', id: '01GB8EQNJ8000497KFBZWNSDFZ' },
+        { token: ':aliendance:', label: 'AlienDance', id: '01GB2ZJFBG000DTBJYANG8XYFP' },
+        { token: ':basedgod:', label: 'BasedGod', id: '01GB9W2CDG000BFSD141G0MGSA' },
+        { token: ':acestare:', label: 'aceStare', id: '01JY2MX5BE5BVWWFV153ANMMHZ' },
+        { token: ':nymncorn:', label: 'nymnCorn', id: '01HM6NJ2X000035ZKVAPWBNW26' },
+    ];
+    const sevenTvRenderableEmotes = [...sevenTvEmotes, ...sevenTvLegacyEmotes];
     const sevenTvEmoteByToken = new Map(
-        sevenTvEmotes.map(emote => [emote.token, emote])
+        sevenTvRenderableEmotes.map(emote => [emote.token, emote])
     );
-    const sevenTvTokenSource = sevenTvEmotes
+    const sevenTvTokenSource = sevenTvRenderableEmotes
         .map(emote => emote.token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
         .join('|');
     const sevenTvTokenTestPattern = new RegExp(
@@ -1525,6 +1535,9 @@
             line-height: 1!important;
         }
         #${emotePickerId} {
+            box-sizing: border-box;
+            min-width: 0;
+            line-height: 1.35!important;
             position: absolute;
             left: 0;
             right: 0;
@@ -1536,6 +1549,7 @@
             background: #111;
             box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.55);
         }
+        #${emotePickerId} * { box-sizing: border-box; }
         #${emotePickerId}[hidden] { display: none!important; }
         .gowo-emote-picker-title {
             margin-bottom: 6px;
@@ -1545,10 +1559,13 @@
         }
         .gowo-emote-grid {
             display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 62px), 1fr));
             gap: 4px;
             max-height: min(55vh, 420px);
+            overflow-x: hidden;
             overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #555 transparent;
             overscroll-behavior: contain;
         }
         .gowo-emote-option {
@@ -1574,21 +1591,24 @@
         .gowo-emote-picker-image {
             width: auto!important;
             height: 30px!important;
-            max-width: 54px!important;
+            max-width: min(54px, 100%)!important;
+            flex-shrink: 0;
             object-fit: contain;
         }
         .gowo-emote-option small {
             max-width: 100%;
-            overflow: hidden;
-            text-overflow: ellipsis;
             color: inherit;
             font-size: 8px;
-            white-space: nowrap;
+            line-height: 1.25!important;
+            text-align: center;
+            overflow-wrap: anywhere;
+            white-space: normal;
         }
         .gowo-emote-picker-hint {
             margin-top: 6px;
             color: #777;
             font-size: 9px;
+            line-height: 1.4!important;
             text-align: center;
         }
 

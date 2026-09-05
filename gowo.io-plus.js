@@ -171,12 +171,12 @@
         { token: ':chef:', label: 'Chef', id: '01FFR5Q96R0007P57XYW0BJAXG' },
         { token: ':party:', label: 'Party', id: '01F6Q93YK8000EQZ7QARQERNWC' },
         { token: ':prayge:', label: 'Prayge', id: '01F6NACCD80006SZ7ZW5FMWKWK' },
-        { token: ':heart:', label: 'Heart', id: '01F6NPP6YG00013ACMMJP3W06V' },
+        { token: ':peepolove:', label: 'peepoLove', id: '01F6NPP6YG00013ACMMJP3W06V' },
         { token: ':uhh:', label: 'uhh', id: '01H0405680000AJFXTYVX2PNJ7' },
         { token: ':petpet:', label: 'PETPET', id: '01FE3XY508000AA32JP519W2EW' },
         { token: ':ppl:', label: 'ppL', id: '01GGD5PJA8000FH13S498E9D8X' },
         { token: ':clap:', label: 'Clap', id: '01GAM8EFQ00004MXFXAJYKA859' },
-        { token: ':pepepls:', label: 'PepePls', id: '01GAFTZ9K80003DHH026MC7JW0' },
+        { token: ':aware:', label: 'Aware', id: '01FFWH9WV80000JT8GHDKHJNZC' },
         { token: ':peepohappy:', label: 'peepoHappy', id: '01GAZ199Z8000FEWHS6AT5QZV0' },
         { token: ':peeposad:', label: 'peepoSad', id: '01GAZ4SBX80007YCE2RXBT44B2' },
         { token: ':peeporun:', label: 'peepoRun', id: '01F6Q045KR0005589X3BDQHRAY' },
@@ -193,7 +193,7 @@
         { token: ':biblethump:', label: 'BibleThump', id: '01J8NMZ2HG0005G1FWF2H9Y615' },
         { token: ':glorp:', label: 'glorp', id: '01H16FA16G0005EZED5J0EY7KN' },
         { token: ':stare:', label: 'Stare', id: '01GG3YGWK8000DWE419062SG28' },
-        { token: ':trolldespair:', label: 'TrollDespair', id: '01EZPGMA6G00047EF100A1SBTF' },
+        { token: ':troll:', label: 'TROLL', id: '01F6P1E7QR0002RDNAW6FFQ1E0' },
         { token: ':ayaya:', label: 'AYAYA', id: '01GB32XE6R00018VJGJ4A9BNCV' },
         { token: ':vibe:', label: 'VIBE', id: '01FYQZVG280006SX8JX4TD7SJA' },
         { token: ':feelsweirdman:', label: 'FeelsWeirdMan', id: '01GB4FWTR8000DGEZ8VYY59RBN' },
@@ -206,6 +206,9 @@
     ]);
     // Retired picker entries remain supported in existing chat history.
     const sevenTvLegacyEmotes = [
+        { token: ':pepepls:', label: 'PepePls', id: '01GAFTZ9K80003DHH026MC7JW0' },
+        { token: ':heart:', label: 'peepoLove', id: '01F6NPP6YG00013ACMMJP3W06V' },
+        { token: ':trolldespair:', label: 'TrollDespair', id: '01EZPGMA6G00047EF100A1SBTF' },
         { token: ':rareparrot:', label: 'RareParrot', id: '01GB4XE3ZR000DKFRGM9Q1M7VS' },
         { token: ':bonk:', label: 'Bonk', id: '01FT4EHG1G0001M6SADSSJAA2D' },
         { token: ':raintime:', label: 'RainTime', id: '01FCY771D800007PQ2DF3GDTN6' },

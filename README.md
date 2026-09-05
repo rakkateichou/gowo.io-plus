@@ -23,7 +23,7 @@ people running Gowo.io+. The fixed 48-emote catalogue matches the one in the
 [JellyWatchParty fork](https://github.com/rakkateichou/JellyWatchParty).
 The picker keeps four columns in the 15% chat pane, with images that shrink and
 labels that wrap to fit narrow panels. It scrolls vertically as needed.
-The catalogue includes hi, NOOOO, catJAM, CAUGHT, peepoRun, TrollDespair, Prayge, RAGEY and Aloo;
+The catalogue includes hi, NOOOO, catJAM, CAUGHT, peepoRun, peepoLove, TROLL, Aware, Prayge, RAGEY and Aloo;
 retired tokens still render in existing messages.
 
 ## Shared cursor drawing

@@ -7,12 +7,14 @@ on:
       - gowo.io-plus.user.js
       - gowo.io-plus.js
       - test/**
+      - package*.json
       - .github/workflows/test-userscript.yml
   pull_request:
     paths:
       - gowo.io-plus.user.js
       - gowo.io-plus.js
       - test/**
+      - package*.json
       - .github/workflows/test-userscript.yml
 
 permissions:
@@ -23,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - run: npm ci --ignore-scripts
       - run: node --check gowo.io-plus.user.js
       - run: node --check gowo.io-plus.js
       - run: node --test test/*.test.mjs

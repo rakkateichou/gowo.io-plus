@@ -5,6 +5,165 @@
     'use strict';
 
     const cursorBridgeMarker = 'gowo-plus-cursor-bridge-v1';
+    const toolbarBridgeMarker = 'gowo-plus-player-toolbar-v1';
+
+    function initPlayerToolbarBridge() {
+        let state = null;
+        let controls = null;
+        let nativeShare = null;
+        let nativeShareBackground = null;
+        let ready = false;
+        let scheduled = false;
+        const send = (type, extra = {}) => window.parent.postMessage({
+            source: toolbarBridgeMarker, type, ...extra
+        }, 'https://gowo.io');
+        const setReady = value => {
+            if (ready === value) return;
+            ready = value;
+            send('ready', { ready });
+        };
+        const setStyle = (element, property, value) => {
+            if (element.style[property] !== value) element.style[property] = value;
+        };
+
+        function layout() {
+            scheduled = false;
+            const root = document.querySelector('#oframeplayer');
+            // PlayerJS has no semantic selector for Share. Match its native SVG,
+            // then leave the clickable element and all its handlers in place.
+            const shareSvg = root?.querySelector('path[d^="M12.6,12.6"]')?.closest('svg');
+            const share = shareSvg?.parentElement?.parentElement?.parentElement;
+            const background = share?.firstElementChild?.firstElementChild;
+            if (!state || !root || !share || !background) {
+                if (nativeShare) nativeShare.classList.remove('gowo-native-share');
+                if (nativeShareBackground) nativeShareBackground.classList.remove('gowo-native-share-background');
+                nativeShare = nativeShareBackground = null;
+                controls?.remove();
+                controls = null;
+                setReady(false);
+                return;
+            }
+
+            if (!controls || controls.parentElement !== root) {
+                controls?.remove();
+                controls = document.createElement('div');
+                controls.id = 'gowo-player-controls';
+                controls.innerHTML = `
+                    <div class="gowo-player-control-row">
+                        <select aria-label="Плеер" title="Выбрать плеер"></select>
+                        <span class="gowo-player-admin-notice" role="status"></span>
+                    </div>
+                    <button type="button" class="gowo-player-refresh" title="Обновить плеер" aria-label="Обновить плеер">
+                        <svg viewBox="0 0 26 26" fill="none" aria-hidden="true"><path d="M23.8346 13C23.8346 18.98 18.9813 23.8333 13.0013 23.8333C7.0213 23.8333 3.37047 17.81 3.37047 17.81M3.37047 17.81H8.26714M3.37047 17.81V23.2266M2.16797 13C2.16797 7.01996 6.97797 2.16663 13.0013 2.16663C20.2271 2.16663 23.8346 8.18996 23.8346 8.18996M23.8346 8.18996V2.77329M23.8346 8.18996H19.0246" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>`;
+                controls.querySelector('select').addEventListener('change', event => {
+                    send('platform', { label: event.target.value });
+                });
+                controls.querySelector('button').addEventListener('click', () => send('refresh'));
+                // These controls are not video-surface clicks or shortcuts.
+                ['click', 'mousedown', 'keydown', 'keyup'].forEach(type => {
+                    controls.addEventListener(type, event => event.stopPropagation());
+                });
+                root.append(controls);
+            }
+            nativeShare = share;
+            nativeShareBackground = background;
+            if (!share.classList.contains('gowo-native-share')) share.classList.add('gowo-native-share');
+            if (!background.classList.contains('gowo-native-share-background')) background.classList.add('gowo-native-share-background');
+
+            const select = controls.querySelector('select');
+            const optionsKey = JSON.stringify(state.platforms);
+            if (select.dataset.options !== optionsKey) {
+                select.replaceChildren(...state.platforms.map(platform => {
+                    const option = document.createElement('option');
+                    option.textContent = option.value = platform.label;
+                    option.disabled = platform.disabled;
+                    option.selected = platform.active;
+                    return option;
+                }));
+                select.dataset.options = optionsKey;
+            }
+            const notice = controls.querySelector('.gowo-player-admin-notice');
+            if (notice.textContent !== state.warning) notice.textContent = state.warning;
+            if (notice.title !== state.warning) notice.title = state.warning;
+            notice.hidden = !state.warning;
+            controls.querySelector('button').disabled = !state.canRefresh;
+
+            const rootRect = root.getBoundingClientRect();
+            const shareRect = share.getBoundingClientRect();
+            const headers = Array.from(root.querySelectorAll(
+                '#player_playlist1, #player_playlist2, #player_playlist3, #player_playlist4, #player_playlist5'
+            )).map(element => element.firstElementChild?.getBoundingClientRect())
+                .filter(rect => rect?.width > 0 && rect.height > 0);
+            const left = Math.max(rootRect.left + 4, ...headers.map(rect => rect.right)) - rootRect.left + 8;
+            const row = controls.querySelector('.gowo-player-control-row');
+            const top = Math.max(0, shareRect.top - rootRect.top - 20);
+            setStyle(row, 'left', `${left}px`);
+            setStyle(row, 'right', `${Math.max(0, rootRect.right - shareRect.left + 28)}px`);
+            setStyle(row, 'top', `${top}px`);
+            const refresh = controls.querySelector('button');
+            setStyle(refresh, 'left', `${shareRect.left - rootRect.left + 28}px`);
+            setStyle(refresh, 'top', `${top}px`);
+            setReady(true);
+        }
+
+        const schedule = () => {
+            if (scheduled) return;
+            scheduled = true;
+            requestAnimationFrame(layout);
+        };
+        window.addEventListener('message', event => {
+            const message = event.data;
+            if (event.source !== window.parent || event.origin !== 'https://gowo.io' ||
+                message?.source !== toolbarBridgeMarker || message.type !== 'state' ||
+                !Array.isArray(message.platforms) || !message.platforms.length ||
+                message.platforms.length > 20 || message.platforms.some(platform =>
+                    typeof platform?.label !== 'string' || platform.label.length > 100) ||
+                typeof message.warning !== 'string' || message.warning.length > 2000) return;
+            state = message;
+            schedule();
+        });
+        const observer = new MutationObserver(records => {
+            if (records.some(record => !controls?.contains(record.target))) schedule();
+        });
+        observer.observe(document.documentElement, {
+            childList: true, subtree: true, characterData: true,
+            attributes: true, attributeFilter: ['style', 'class']
+        });
+        window.addEventListener('resize', schedule);
+        injectCSS(`
+            .gowo-native-share { transform: translateX(-48px)!important; }
+            .gowo-native-share-background { background: transparent!important; backdrop-filter: none!important; }
+            #gowo-player-controls { position: absolute; inset: 0; pointer-events: none; z-index: 1001; }
+            #gowo-player-controls * { box-sizing: border-box; }
+            .gowo-player-control-row { position: absolute; height: 40px; display: flex; align-items: center; gap: 12px; }
+            .gowo-player-control-row select {
+                pointer-events: auto; color-scheme: dark; appearance: auto;
+                flex: 0 1 164px; width: 164px; min-width: 96px; max-width: 100%; height: 40px;
+                margin: 0; padding: 0 10px; border: 0; border-radius: 10px;
+                background: #191a1c; color: #fff; font: 15px Arial, sans-serif; cursor: pointer;
+            }
+            .gowo-player-admin-notice {
+                min-width: 0; flex: 1; max-height: 40px; overflow: hidden;
+                color: #ff7379; font: 13px/18px Arial, sans-serif;
+                display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+                pointer-events: auto;
+            }
+            .gowo-player-admin-notice[hidden] { display: none!important; }
+            .gowo-player-refresh {
+                position: absolute; pointer-events: auto; display: grid; place-items: center;
+                width: 40px; height: 40px; margin: 0; padding: 7px; border: 0;
+                background: transparent; color: #fff; border-radius: 10px; cursor: pointer;
+            }
+            .gowo-player-refresh svg { width: 26px; height: 26px; }
+            .gowo-player-refresh:hover { color: #bbb; }
+            .gowo-player-refresh:disabled { opacity: .4; cursor: default; }
+            .gowo-player-refresh:focus-visible, .gowo-player-control-row select:focus-visible {
+                outline: 1px solid #fff; outline-offset: 2px;
+            }
+        `);
+        send('request');
+    }
 
     function isEditableElement(target) {
         if (!target) return false;
@@ -79,6 +238,7 @@
         if (hostname === 'alloha.gowo.tv' ||
             hostname.endsWith('.obrut.show')) {
             initPlayerCursorBridge();
+            initPlayerToolbarBridge();
         }
         return;
     }
@@ -596,67 +756,83 @@
         }
     });
 
-    const scheduledPlayerScrolls = new WeakSet();
-    const completedPlayerScrolls = new WeakSet();
+    let roomToolbar = null;
 
-    function scheduleInitialPlayerScroll() {
+    function syncRoomToolbar(force = false) {
         const player = document.querySelector('.videoplayer');
-        if (!player || scheduledPlayerScrolls.has(player) ||
-            completedPlayerScrolls.has(player)) {
-            return;
+        const frame = player && Array.from(player.querySelectorAll('iframe[src]'))
+            .find(candidate => {
+                try {
+                    return /^https?:$/.test(new URL(candidate.src).protocol) && !isBlockedAdUrl(candidate.src);
+                } catch { return false; }
+            });
+        if (!frame || roomToolbar?.frame !== frame || roomToolbar.url !== frame.src) {
+            if (roomToolbar) {
+                roomToolbar.observer.disconnect();
+                roomToolbar.frame.removeEventListener('load', roomToolbar.onLoad);
+                delete roomToolbar.player.dataset.gowoToolbarReady;
+                roomToolbar = null;
+            }
+            if (!frame) return;
+            const host = Array.from(player.children).find(child => child.contains(frame));
+            if (!host) return;
+            host.classList.add('gowo-player-host');
+            frame.classList.add('gowo-room-frame');
+            const current = { player, frame, url: frame.src, signature: '' };
+            current.onLoad = () => {
+                if (roomToolbar !== current) return;
+                delete player.dataset.gowoToolbarReady;
+                syncRoomToolbar(true);
+            };
+            current.observer = new MutationObserver(() => syncRoomToolbar());
+            current.observer.observe(player, {
+                childList: true, subtree: true, characterData: true,
+                attributes: true, attributeFilter: ['class', 'disabled', 'src']
+            });
+            frame.addEventListener('load', current.onLoad);
+            roomToolbar = current;
         }
-
-        scheduledPlayerScrolls.add(player);
-        let attempts = 0;
-        let timer = null;
-        const listeners = new AbortController();
-
-        const finish = () => {
-            if (timer !== null) clearTimeout(timer);
-            listeners.abort();
-            scheduledPlayerScrolls.delete(player);
-            completedPlayerScrolls.add(player);
+        const platforms = Array.from(player.querySelectorAll('.platforms button')).map(button => ({
+            label: button.textContent.trim(), active: button.classList.contains('active'), disabled: button.disabled
+        }));
+        const message = {
+            source: toolbarBridgeMarker, type: 'state', platforms,
+            warning: player.querySelector('.danger-message')?.textContent.trim() || '',
+            canRefresh: Boolean(player.querySelector('app-icon-refresh-2'))
         };
-
-        // Stop pinning as soon as the viewer deliberately tries to scroll up.
-        player.addEventListener('wheel', event => {
-            if (event.deltaY < 0) finish();
-        }, {
-            passive: true,
-            signal: listeners.signal
-        });
-        player.addEventListener('touchstart', finish, {
-            passive: true,
-            once: true,
-            signal: listeners.signal
-        });
-        window.addEventListener('keydown', event => {
-            if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) finish();
-        }, { capture: true, signal: listeners.signal });
-
-        const scrollWhenReady = () => {
-            if (!player.isConnected) {
-                finish();
-                return;
-            }
-
-            if (player.scrollHeight > player.clientHeight) {
-                // Angular and the embedded player grow in several passes. Keep
-                // following the bottom during startup so a later layout pass
-                // cannot leave part of the header visible.
-                player.scrollTop = player.scrollHeight;
-            }
-
-            attempts++;
-            if (attempts < 100) {
-                timer = setTimeout(scrollWhenReady, 100);
-            } else {
-                finish();
-            }
-        };
-
-        scrollWhenReady();
+        const signature = JSON.stringify(message);
+        if (force || signature !== roomToolbar.signature) {
+            roomToolbar.signature = signature;
+            frame.contentWindow?.postMessage(message, new URL(frame.src).origin);
+        }
     }
+
+    window.addEventListener('message', event => {
+        const message = event.data;
+        if (message?.source !== toolbarBridgeMarker) return;
+        syncRoomToolbar();
+        const current = roomToolbar;
+        if (!current || event.source !== current.frame.contentWindow ||
+            event.origin !== new URL(current.url).origin ||
+            event.origin !== 'https://alloha.gowo.tv' && !/^https:\/\/[^/]+\.obrut\.show$/.test(event.origin)) return;
+        if (message.type === 'request') syncRoomToolbar(true);
+        if (message.type === 'ready') {
+            if (message.ready === true) current.player.dataset.gowoToolbarReady = 'true';
+            else delete current.player.dataset.gowoToolbarReady;
+        }
+        if (message.type === 'platform' && typeof message.label === 'string') {
+            const button = Array.from(current.player.querySelectorAll('.platforms button'))
+                .find(candidate => candidate.textContent.trim() === message.label);
+            if (button && !button.disabled && !button.classList.contains('active')) {
+                delete current.player.dataset.gowoToolbarReady;
+                button.click();
+            }
+        }
+        if (message.type === 'refresh') {
+            delete current.player.dataset.gowoToolbarReady;
+            current.player.querySelector('app-icon-refresh-2')?.click();
+        }
+    });
 
     function stringToColor(str) {
         // FNV-1a-ish hash
@@ -1291,8 +1467,23 @@
         body {  background: #000;  }
         .danger-message {  background: #000!important;  }
 
-        .videoplayer {  height: 100%!important; padding-top: 10px; }
-        iframe {  height: 100vh!important; margin-bottom: -50px; }
+        .left-place { min-height: 0; overflow: hidden; }
+        .videoplayer {
+            display: flex!important; flex-direction: column;
+            height: 100%!important; min-height: 0; overflow: hidden!important; padding: 0!important;
+        }
+        .videoplayer > .wrap-header { flex: 0 0 auto; }
+        .videoplayer > .gowo-player-host {
+            display: flex!important; flex-direction: column; flex: 1 1 0%; min-height: 0;
+        }
+        .videoplayer .gowo-room-frame {
+            display: block; flex: 1 1 0%; width: 100%; height: 100%!important;
+            min-height: 0; margin: 0!important; border: 0;
+        }
+        .videoplayer .danger-message { flex: 0 0 auto; }
+        .videoplayer > app-footer-room { display: none!important; }
+        .videoplayer[data-gowo-toolbar-ready="true"] > .wrap-header,
+        .videoplayer[data-gowo-toolbar-ready="true"] .danger-message { display: none!important; }
         *::-webkit-scrollbar { width: 0px!important; }
 
         .left-place { width: 85%!important; }
@@ -1699,7 +1890,7 @@
 
     function apply() {
         removeInjectedAds();
-        scheduleInitialPlayerScroll();
+        syncRoomToolbar();
         injectCallButtonSetting();
         injectEmotePicker();
 
@@ -1728,7 +1919,10 @@
 
     obs.observe(document.documentElement, {
         childList: true,
-        subtree: true
+        subtree: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ['src']
     });
 
     startCursorRelay();

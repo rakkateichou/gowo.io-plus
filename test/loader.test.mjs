@@ -24,7 +24,8 @@ function harness({ cached = '', root = true, frame = false, storageFails = false
     let nextTimer = 0;
     let aborts = 0;
     const document = {
-        documentElement: root ? {} : null,
+        documentElement: root ? { appendChild() {} } : null,
+        createElement: () => ({}),
         addEventListener: (name, callback) => events.set(name, callback)
     };
     const window = {
@@ -189,11 +190,12 @@ test('the actual runtime loads the player bridge and still sends fresh cursor po
     assert.equal(h.errors.length, 0);
     h.events.get('keydown')({ code: 'KeyX', preventDefault() {} });
     h.events.get('mousemove')({ clientX: 250, clientY: 125 });
-    assert.equal(h.messages[0][0].type, 'start');
-    assert.equal(h.messages[0][0].point, null);
-    assert.equal(h.messages[1][0].point.x, 0.25);
-    assert.equal(h.messages[1][0].point.y, 0.25);
-    assert.equal(h.messages[1][1], 'https://gowo.io');
+    const cursorMessages = h.messages.filter(([message]) => message.source === 'gowo-plus-cursor-bridge-v1');
+    assert.equal(cursorMessages[0][0].type, 'start');
+    assert.equal(cursorMessages[0][0].point, null);
+    assert.equal(cursorMessages[1][0].point.x, 0.25);
+    assert.equal(cursorMessages[1][0].point.y, 0.25);
+    assert.equal(cursorMessages[1][1], 'https://gowo.io');
 });
 
 for (const cached of ['', oldSource]) {

@@ -2,7 +2,7 @@
 // @name         Gowo.io+
 // @namespace    https://github.com/rakkateichou/gowo.io-plus
 // @description  Gowo.io enhancer — loads the latest features on each page load
-// @version      2026.9.6.1
+// @version      2026.9.5.21
 // @author       rakkateichou
 // @match        *://gowo.io/orooms/*
 // @match        *://*.obrut.show/embed/*

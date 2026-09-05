@@ -12,7 +12,7 @@ const oldSource = source('window.runs.push("old");');
 const newSource = source('window.runs.push("new");');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
-function harness({ cached = '', root = true, frame = false, storageFails = false } = {}) {
+function harness({ cached = '', root = true, frame = false, storageFails = false, safari = false } = {}) {
     const store = new Map(cached ? [[cacheKey, cached]] : []);
     const timers = new Map();
     const requests = [];
@@ -62,6 +62,16 @@ function harness({ cached = '', root = true, frame = false, storageFails = false
             return { abort() { aborts++; options.onabort(); } };
         }
     });
+    if (safari) {
+        context.GM = {
+            getValue: async (...args) => context.readValue(...args),
+            setValue: async (...args) => context.writeValue(...args)
+        };
+        context.readValue = context.GM_getValue;
+        context.writeValue = context.GM_setValue;
+        delete context.GM_getValue;
+        delete context.GM_setValue;
+    }
     const inject = () => vm.runInContext(loader, context);
     inject();
     return {
@@ -184,4 +194,50 @@ test('the actual runtime loads the player bridge and still sends fresh cursor po
     assert.equal(h.messages[1][0].point.x, 0.25);
     assert.equal(h.messages[1][0].point.y, 0.25);
     assert.equal(h.messages[1][1], 'https://gowo.io');
+});
+
+for (const cached of ['', oldSource]) {
+    test(`Safari responseURL and async storage start and cache the runtime (${cached ? 'upgrade' : 'install'})`, async () => {
+        const h = harness({ safari: true, cached });
+        await flush();
+        assert.equal(h.requests[0].responseType, 'text');
+        h.respond(newSource, { finalUrl: undefined, responseURL: runtimeUrl });
+        await flush();
+        assert.deepEqual(h.window.runs, ['new']);
+        assert.equal(h.store.get(cacheKey), newSource);
+        assert.equal(h.errors.length, 0);
+        assert.equal(h.warnings.length, 0);
+    });
+}
+
+test('Safari uses its async offline cache on timeout and aborts the request', async () => {
+    const h = harness({ safari: true, cached: oldSource });
+    await flush();
+    const timer = [...h.timers.values()][0];
+    assert.equal(timer.ms, 2500);
+    timer.callback();
+    await flush();
+    h.respond(newSource, { finalUrl: undefined, responseURL: runtimeUrl });
+    await flush();
+    assert.deepEqual(h.window.runs, ['old']);
+    assert.equal(h.aborts, 1);
+});
+
+test('Safari storage rejections do not prevent online startup', async () => {
+    const h = harness({ safari: true, storageFails: true });
+    await flush();
+    h.respond(newSource, { finalUrl: undefined, responseURL: runtimeUrl });
+    await flush();
+    assert.deepEqual(h.window.runs, ['new']);
+    assert.equal(h.warnings.length, 2);
+    assert.equal(h.errors.length, 0);
+});
+
+test('Safari rejects redirects outside the trusted runtime URL', async () => {
+    const h = harness({ safari: true, cached: oldSource });
+    await flush();
+    h.respond(newSource, { finalUrl: undefined, responseURL: 'https://example.com/runtime.js' });
+    await flush();
+    assert.deepEqual(h.window.runs, ['old']);
+    assert.equal(h.store.get(cacheKey), oldSource);
 });

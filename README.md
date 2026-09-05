@@ -1,6 +1,6 @@
 # Gowo.io+
 
-A Tampermonkey userscript that enhances Gowo.io rooms.
+A userscript for Tampermonkey and Safari Userscripts that enhances Gowo.io rooms.
 
 ## Features
 
@@ -45,6 +45,20 @@ Tampermonkey will open its installation screen. Install the loader once and
 allow its connection to `raw.githubusercontent.com`. It loads the enhancer
 automatically when you open a room, including the supported player frames.
 
+### Safari (Userscripts)
+
+Open the install link in Safari, then open the Userscripts extension popup and
+install or update **Gowo.io+**. Enable Userscripts and allow access to `gowo.io`
+and the supported player sites (`*.obrut.show` and `alloha.gowo.tv`). Allow access
+to `raw.githubusercontent.com` if requested for the runtime download.
+
+**Existing Safari installs need a one-time loader update** for this fix, then a
+Gowo page reload. Updating only the runtime cannot repair the old loader.
+The loader supports Userscripts' asynchronous `GM.getValue` / `GM.setValue`
+storage and its `responseURL` network response field, while retaining the
+Tampermonkey APIs. It explicitly selects the content injection context.
+See the [Userscripts API documentation](https://github.com/quoid/userscripts/tree/release/4.x.x#api).
+
 ## Automatic updates
 
 `gowo.io-plus.user.js` is now a small loader. On every page load it fetches
@@ -53,7 +67,7 @@ cache. Future feature changes arrive when you open or refresh Gowo, without
 clicking an update link or waiting for Tampermonkey's script update schedule.
 GitHub's CDN can take a little time to propagate a push.
 
-The last runtime that started successfully is saved in Tampermonkey's private
+The last runtime that started successfully is saved in the userscript manager's private
 storage. If GitHub is unavailable, returns an invalid response, or takes longer
 than 2.5 seconds, the loader uses that saved copy for the page. A first install
 has no offline copy and waits up to 10 seconds. An already running page keeps

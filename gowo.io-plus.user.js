@@ -2,16 +2,19 @@
 // @name         Gowo.io+
 // @namespace    https://github.com/rakkateichou/gowo.io-plus
 // @description  Gowo.io enhancer — loads the latest features on each page load
-// @version      2026.9.5.20
+// @version      2026.9.6.1
 // @author       rakkateichou
 // @match        *://gowo.io/orooms/*
 // @match        *://*.obrut.show/embed/*
 // @match        *://alloha.gowo.tv/*
 // @run-at       document-start
 // @sandbox      DOM
+// @inject-into  content
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM.getValue
+// @grant        GM.setValue
 // @connect      raw.githubusercontent.com
 // @homepageURL  https://github.com/rakkateichou/gowo.io-plus
 // @supportURL   https://github.com/rakkateichou/gowo.io-plus/issues
@@ -64,11 +67,12 @@
                     method: 'GET',
                     url: `${runtimeUrl}?t=${Date.now()}`,
                     anonymous: true,
+                    responseType: 'text',
                     nocache: true,
                     onload(response) {
                         if (settled) return;
                         try {
-                            const finalUrl = new URL(response.finalUrl);
+                            const finalUrl = new URL(response.finalUrl || response.responseURL);
                             const expectedUrl = new URL(runtimeUrl);
                             if (response.status !== 200 ||
                                 finalUrl.origin !== expectedUrl.origin ||
@@ -105,7 +109,9 @@
     async function boot() {
         let cached = '';
         try {
-            cached = GM_getValue(cacheKey, '');
+            cached = typeof GM_getValue === 'function'
+                ? GM_getValue(cacheKey, '')
+                : await GM.getValue(cacheKey, '');
         } catch (error) {
             console.warn(logPrefix, 'Could not read the offline copy.', error);
         }
@@ -130,7 +136,11 @@
         run(window, document);
         if (source !== cached) {
             try {
-                GM_setValue(cacheKey, source);
+                if (typeof GM_setValue === 'function') {
+                    GM_setValue(cacheKey, source);
+                } else {
+                    await GM.setValue(cacheKey, source);
+                }
             } catch (error) {
                 console.warn(logPrefix, 'Could not save the offline copy.', error);
             }

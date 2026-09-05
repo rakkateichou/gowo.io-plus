@@ -201,7 +201,8 @@
         { token: ':feelsokayman:', label: 'FeelsOkayMan', id: '01GB46137R000BJ5HR8F6XV8J1' },
         { token: ':feelsstrongman:', label: 'FeelsStrongMan', id: '01GB4EV0Q800090V9B3D8CGEHV' },
         { token: ':7cinema:', label: '7Cinema', id: '01GBFDVP18000CRDCG0DV7KEMY' },
-        { token: ':xdx:', label: 'xdx', id: '01FZBTBQDG000DX0N9GHCRXYPH' }
+        { token: ':xdx:', label: 'xdx', id: '01FZBTBQDG000DX0N9GHCRXYPH' },
+        { token: ':aloo:', label: 'Aloo', id: '01F6PRA3N80003BH8AEY9DWKDQ' }
     ]);
     // Retired picker entries remain supported in existing chat history.
     const sevenTvLegacyEmotes = [

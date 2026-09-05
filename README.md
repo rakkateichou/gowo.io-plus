@@ -8,7 +8,7 @@ A Tampermonkey userscript that enhances Gowo.io rooms.
 - Consistent nickname colours and compact consecutive messages
 - Local receive/send time shown when hovering over a live chat message
 - Reply text always starts below its quoted message
-- A responsive 47-emote 7TV picker with `:token:` insertion and inline animated rendering
+- A responsive 48-emote 7TV picker with `:token:` insertion and inline animated rendering
 - A dedicated Send button to the right of the chat field
 - Shared coloured cursors and smooth trails while holding `X` over the player
 - Best-effort removal of Gowo.io ad loaders and injected video-ad overlays
@@ -19,10 +19,10 @@ A Tampermonkey userscript that enhances Gowo.io rooms.
 
 Use the **☺** button beside the chat box, or type a token such as `:pog:`.
 The token stays ordinary Gowo.io chat text and is rendered as an emote for
-people running Gowo.io+. The fixed 47-emote catalogue matches the one in the
+people running Gowo.io+. The fixed 48-emote catalogue matches the one in the
 [JellyWatchParty fork](https://github.com/rakkateichou/JellyWatchParty).
 The picker uses fewer columns in narrow chat panels and scrolls vertically.
-The catalogue includes hi, NOOOO, catJAM, CAUGHT, peepoRun, TrollDespair, Prayge and RAGEY;
+The catalogue includes hi, NOOOO, catJAM, CAUGHT, peepoRun, TrollDespair, Prayge, RAGEY and Aloo;
 retired tokens still render in existing messages.
 
 ## Shared cursor drawing

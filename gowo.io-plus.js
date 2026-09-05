@@ -1568,7 +1568,9 @@
         }
         .gowo-emote-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(min(100%, 62px), 1fr));
+            /* Keep four columns in the 15% chat pane; images and labels below
+               can shrink or wrap instead of forcing a wider minimum cell. */
+            grid-template-columns: repeat(4, minmax(0, 1fr));
             gap: 4px;
             max-height: min(55vh, 420px);
             overflow-x: hidden;

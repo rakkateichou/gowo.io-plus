@@ -21,7 +21,8 @@ Use the **☺** button beside the chat box, or type a token such as `:pog:`.
 The token stays ordinary Gowo.io chat text and is rendered as an emote for
 people running Gowo.io+. The fixed 48-emote catalogue matches the one in the
 [JellyWatchParty fork](https://github.com/rakkateichou/JellyWatchParty).
-The picker uses fewer columns in narrow chat panels and scrolls vertically.
+The picker keeps four columns in the 15% chat pane, with images that shrink and
+labels that wrap to fit narrow panels. It scrolls vertically as needed.
 The catalogue includes hi, NOOOO, catJAM, CAUGHT, peepoRun, TrollDespair, Prayge, RAGEY and Aloo;
 retired tokens still render in existing messages.
 

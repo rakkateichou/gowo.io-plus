@@ -11,7 +11,6 @@
         let state = null;
         let controls = null;
         let nativeShare = null;
-        let nativeShareBackground = null;
         let ready = false;
         let acknowledgeState = false;
         let scheduled = false;
@@ -32,14 +31,13 @@
             scheduled = false;
             const root = document.querySelector('#oframeplayer');
             // PlayerJS has no semantic selector for Share. Match its native SVG,
-            // then leave the clickable element and all its handlers in place.
+            // and keep its layout box as the anchor for our Refresh button.
             const shareSvg = root?.querySelector('path[d^="M12.6,12.6"]')?.closest('svg');
             const share = shareSvg?.parentElement?.parentElement?.parentElement;
             const background = share?.firstElementChild?.firstElementChild;
             if (!state || !root || !share || !background) {
                 if (nativeShare) nativeShare.classList.remove('gowo-native-share');
-                if (nativeShareBackground) nativeShareBackground.classList.remove('gowo-native-share-background');
-                nativeShare = nativeShareBackground = null;
+                nativeShare = null;
                 controls?.remove();
                 controls = null;
                 setReady(false);
@@ -69,9 +67,7 @@
                 root.append(controls);
             }
             nativeShare = share;
-            nativeShareBackground = background;
             if (!share.classList.contains('gowo-native-share')) share.classList.add('gowo-native-share');
-            if (!background.classList.contains('gowo-native-share-background')) background.classList.add('gowo-native-share-background');
 
             const select = controls.querySelector('select');
             const optionsKey = JSON.stringify(state.platforms);
@@ -104,7 +100,7 @@
             setStyle(row, 'right', `${Math.max(0, rootRect.right - shareRect.left + 28)}px`);
             setStyle(row, 'top', `${top}px`);
             const refresh = controls.querySelector('button');
-            setStyle(refresh, 'left', `${shareRect.left - rootRect.left + 28}px`);
+            setStyle(refresh, 'left', `${shareRect.left - rootRect.left - 20}px`);
             setStyle(refresh, 'top', `${top}px`);
             setReady(true);
         }
@@ -137,8 +133,11 @@
         });
         window.addEventListener('resize', schedule);
         injectCSS(`
-            .gowo-native-share { transform: translateX(-48px)!important; }
-            .gowo-native-share-background { background: transparent!important; backdrop-filter: none!important; }
+            /* Keep the anchor measurable, but hide the entire native control
+               and disable its descendants' explicit pointer-events: auto. */
+            .gowo-native-share, .gowo-native-share * {
+                visibility: hidden!important; pointer-events: none!important;
+            }
             #gowo-player-controls { position: absolute; inset: 0; pointer-events: none; z-index: 1001; }
             #gowo-player-controls * { box-sizing: border-box; }
             .gowo-player-control-row { position: absolute; height: 40px; display: flex; align-items: center; gap: 12px; }

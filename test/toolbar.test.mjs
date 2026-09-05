@@ -43,9 +43,7 @@ function harness(frame = false, html = frame ? frameHtml : parentHtml) {
     const rect = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height });
     if (frame && document.querySelector('#oframeplayer')) {
         document.querySelector('#oframeplayer').getBoundingClientRect = () => rect(0, 0, 1000, 700);
-        document.querySelector('#native-share').getBoundingClientRect = function() {
-            return rect(967.5 - (this.classList.contains('gowo-native-share') ? 48 : 0), 32.5, 0, 0);
-        };
+        document.querySelector('#native-share').getBoundingClientRect = () => rect(967.5, 32.5, 0, 0);
         document.querySelector('#player_playlist2').firstElementChild.getBoundingClientRect = () => rect(12.5, 12.5, 110, 40);
         document.querySelector('#player_playlist1').firstElementChild.getBoundingClientRect = () => rect(135.5, 12.5, 290, 40);
     }
@@ -148,7 +146,7 @@ test('native state changes propagate; no-frame and about:blank startup are safe'
     assert.doesNotThrow(() => harness(false, parentHtml.replace(frameUrl, 'about:blank')));
 });
 
-test('frame appends controls after audio and refresh after background-free native Share', () => {
+test('frame hides native Share and keeps Refresh at the right without an empty button slot', () => {
     const h = harness(true);
     assert.equal(h.messages[0].message.type, 'request');
     h.receive(state, { origin: 'https://evil.example' });
@@ -156,11 +154,13 @@ test('frame appends controls after audio and refresh after background-free nativ
     h.receive(state);
     const row = h.document.querySelector('.gowo-player-control-row');
     assert.equal(row.style.left, '433.5px');
+    assert.equal(row.style.right, '60.5px');
     assert.equal(h.document.querySelector('.gowo-player-refresh').style.left, '947.5px');
     assert.equal(h.document.querySelector('select').children.length, 2);
     assert.equal(h.document.querySelector('.gowo-player-admin-notice').textContent, state.warning);
     assert.ok(h.document.querySelector('#native-share').classList.contains('gowo-native-share'));
-    assert.ok(h.document.querySelector('#native-share > pjsdiv > pjsdiv').classList.contains('gowo-native-share-background'));
+    assert.match(h.document.querySelector('style').textContent,
+        /\.gowo-native-share, \.gowo-native-share \*\s*\{\s*visibility: hidden!important; pointer-events: none!important;/);
     assert.equal(h.document.querySelector('#player_playlist1').parentElement.id, 'oframeplayer');
     assert.equal(h.messages.at(-1).message.ready, true);
     const beforeLoad = h.messages.length;

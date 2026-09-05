@@ -14,7 +14,7 @@ A userscript for Tampermonkey and Safari Userscripts that enhances Gowo.io rooms
 - A dedicated Send button to the right of the chat field
 - Shared coloured cursors and smooth trails while holding `X` over the player
 - Best-effort removal of Gowo.io ad loaders and injected video-ad overlays
-- A scroll-free video pane with player selection, admin notice, Share and Refresh in the native player toolbar
+- A scroll-free video pane with player selection, admin notice and Refresh in the native player toolbar
 - Compact settings typography and a saved, default-on option to hide the call button
 
 ## 7TV emotes
@@ -43,8 +43,8 @@ viewers need Gowo.io+ installed to see the drawing.
 ## Player toolbar
 
 In the supported PlayerJS layout, the player dropdown follows the episode/audio
-controls, and the admin notice shares the same row. Share has a transparent
-background; Refresh is immediately to its right. The dropdown and Refresh call
+controls, and the admin notice shares the same row. Share is hidden completely;
+Refresh stays at the right edge. The dropdown and Refresh call
 Gowo's original controls, and the notice stays synchronized with the room.
 The iframe fills the available pane height without startup scrolling.
 

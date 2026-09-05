@@ -834,7 +834,8 @@
             }
         }
         if (message.type === 'refresh') {
-            delete current.player.dataset.gowoToolbarReady;
+            // Gowo can resynchronize in place rather than reload the iframe.
+            // Only the actual load event should reset toolbar readiness.
             current.player.querySelector('app-icon-refresh-2')?.click();
         }
     });

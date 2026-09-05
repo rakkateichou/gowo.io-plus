@@ -127,9 +127,11 @@ test('platform and refresh commands invoke only the original permitted controls'
     buttons[1].disabled = false;
     h.receive({ type: 'platform', label: state.platforms[1].label });
     h.receive({ type: 'refresh' }, { source: {} });
+    h.receive({ type: 'ready', ready: true });
     h.receive({ type: 'refresh' });
     assert.equal(platformClicks, 1);
     assert.equal(refreshClicks, 1);
+    assert.equal(h.document.querySelector('.videoplayer').dataset.gowoToolbarReady, 'true');
 });
 
 test('native state changes propagate; no-frame and about:blank startup are safe', () => {

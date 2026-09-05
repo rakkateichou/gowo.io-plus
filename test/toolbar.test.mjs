@@ -25,12 +25,21 @@ function harness(frame = false, html = frame ? frameHtml : parentHtml) {
     const observers = [];
     const raf = [];
     const messages = [];
+    const computedStyles = new WeakMap();
     const frameWindow = { postMessage: (message, origin) => messages.push({ message, origin }) };
     const parentWindow = { postMessage: (message, origin) => messages.push({ message, origin }) };
     const window = {
         document, innerWidth: 1000, innerHeight: 700,
         location: new URL(frame ? frameUrl : 'https://gowo.io/fixture'),
         parent: parentWindow,
+        getComputedStyle(element) {
+            return {
+                display: element.hidden ? 'none' : element.style.display || 'block',
+                visibility: element.style.visibility || 'visible',
+                opacity: element.style.opacity || '1',
+                ...computedStyles.get(element)
+            };
+        },
         addEventListener(type, callback) {
             if (!listeners.has(type)) listeners.set(type, []);
             listeners.get(type).push(callback);
@@ -70,6 +79,7 @@ function harness(frame = false, html = frame ? frameHtml : parentHtml) {
     };
     return {
         document, iframe, window, messages, frameWindow, parentWindow, flush,
+        computedStyles,
         emit(type, event) { for (const listener of listeners.get(type) || []) listener(event); flush(); },
         receive(message, overrides = {}) {
             this.emit('message', {
@@ -191,4 +201,98 @@ test('frame control events bridge actions, and missing native markup restores fa
     unsupported.receive(state);
     assert.equal(unsupported.document.querySelector('#gowo-player-controls'), null);
     assert.ok(!unsupported.messages.some(entry => entry.message.ready === true));
+});
+
+test('custom controls mirror native fading, hide without click or keyboard targets, and reappear', () => {
+    const h = harness(true);
+    h.receive(state);
+    const controls = h.document.querySelector('#gowo-player-controls');
+    const headers = [...h.document.querySelectorAll('#player_playlist1, #player_playlist2')];
+    for (const opacity of ['0.6', '0', '0.4', '1']) {
+        for (const header of headers) header.style.opacity = opacity;
+        h.mutate(headers[0]);
+        const hidden = opacity === '0';
+        assert.equal(controls.style.opacity, opacity);
+        assert.equal(controls.style.visibility, hidden ? 'hidden' : 'visible');
+        assert.equal(controls.inert, hidden);
+        assert.equal(controls.getAttribute('aria-hidden'), String(hidden));
+        assert.equal(h.document.querySelector('.gowo-player-admin-notice').textContent, state.warning);
+        assert.equal(h.messages.at(-1).message.ready, true);
+    }
+    assert.equal(h.document.querySelectorAll('#gowo-player-controls').length, 1);
+});
+
+test('native display/visibility hiding and CSS class styles are respected without moving the row', () => {
+    const h = harness(true);
+    h.receive(state);
+    const controls = h.document.querySelector('#gowo-player-controls');
+    const row = controls.querySelector('.gowo-player-control-row');
+    const headers = [...h.document.querySelectorAll('#player_playlist1, #player_playlist2')];
+    const left = row.style.left;
+    for (const style of [{ display: 'none' }, { visibility: 'hidden' }, { opacity: '0' }]) {
+        for (const header of headers) h.computedStyles.set(header, style);
+        h.mutate(headers[0]);
+        assert.equal(controls.style.visibility, 'hidden');
+    }
+    for (const header of headers) {
+        h.computedStyles.delete(header);
+        header.hidden = true;
+        header.firstElementChild.getBoundingClientRect = () => ({ width: 0, height: 0 });
+    }
+    h.mutate();
+    assert.equal(controls.style.visibility, 'hidden');
+    assert.equal(row.style.left, left);
+    headers[0].hidden = false;
+    h.mutate();
+    assert.equal(controls.style.visibility, 'visible');
+});
+
+test('native ancestor and header-child opacity are mirrored, excluding the shared player root', () => {
+    const h = harness(true);
+    h.receive(state);
+    const root = h.document.querySelector('#oframeplayer');
+    const wrapper = h.document.createElement('div');
+    root.append(wrapper);
+    for (const header of root.querySelectorAll('#player_playlist1, #player_playlist2')) {
+        wrapper.append(header);
+        header.firstElementChild.style.opacity = '0.5';
+    }
+    root.style.opacity = '0.5';
+    wrapper.style.opacity = '0.5';
+    h.mutate(wrapper);
+    const controls = h.document.querySelector('#gowo-player-controls');
+    assert.equal(controls.style.opacity, '0.25');
+    wrapper.style.visibility = 'hidden';
+    h.mutate(wrapper);
+    assert.equal(controls.style.visibility, 'hidden');
+});
+
+test('CSS fades are sampled to completion without an endless animation loop', () => {
+    const h = harness(true);
+    h.receive(state);
+    const headers = [...h.document.querySelectorAll('#player_playlist1, #player_playlist2')];
+    let samples = 0;
+    const getComputedStyle = h.window.getComputedStyle;
+    h.window.getComputedStyle = element => {
+        if (element === headers[0]) {
+            samples++;
+            for (const header of headers) h.computedStyles.set(header, { opacity: samples < 3 ? '0.5' : '0' });
+        }
+        return getComputedStyle(element);
+    };
+    headers[0].getAnimations = () => samples < 3 ? [{ playState: 'running' }] : [];
+    h.mutate(headers[0]);
+    assert.equal(samples, 3);
+    assert.equal(h.document.querySelector('#gowo-player-controls').style.visibility, 'hidden');
+    h.flush();
+    assert.equal(samples, 3);
+});
+
+test('players without native episode/audio dropdowns keep the custom controls available', () => {
+    const h = harness(true);
+    h.document.querySelectorAll('#player_playlist1, #player_playlist2').forEach(header => header.remove());
+    h.receive(state);
+    const controls = h.document.querySelector('#gowo-player-controls');
+    assert.equal(controls.style.opacity, '1');
+    assert.equal(controls.inert, false);
 });

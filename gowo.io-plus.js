@@ -27,6 +27,38 @@
             if (element.style[property] !== value) element.style[property] = value;
         };
 
+        function syncVisibility(root, nativeHeaders) {
+            // Follow the native toolbar, not playback itself: PlayerJS also
+            // reveals these controls on mouse movement while video is playing.
+            let opacity = nativeHeaders.length ? 0 : 1;
+            let animating = false;
+            for (const header of nativeHeaders) {
+                let headerOpacity = 1;
+                for (let element = header.firstElementChild || header;
+                    element && element !== root; element = element.parentElement) {
+                    const style = window.getComputedStyle(element);
+                    if (style.display === 'none' || style.visibility === 'hidden' ||
+                        style.visibility === 'collapse') headerOpacity = 0;
+                    const value = parseFloat(style.opacity);
+                    if (Number.isFinite(value)) headerOpacity *= value;
+                    // CSS transitions don't emit a mutation for every frame.
+                    // Sample only while a native animation is actually running.
+                    if (element.getAnimations?.().some(animation => animation.playState === 'running')) {
+                        animating = true;
+                    }
+                }
+                opacity = Math.max(opacity, headerOpacity);
+            }
+            const hidden = opacity <= 0;
+            setStyle(controls, 'opacity', String(opacity));
+            setStyle(controls, 'visibility', hidden ? 'hidden' : 'visible');
+            if (controls.inert !== hidden) controls.inert = hidden;
+            if (controls.getAttribute('aria-hidden') !== String(hidden)) {
+                controls.setAttribute('aria-hidden', String(hidden));
+            }
+            if (animating) schedule();
+        }
+
         function layout() {
             scheduled = false;
             const root = document.querySelector('#oframeplayer');
@@ -89,19 +121,22 @@
 
             const rootRect = root.getBoundingClientRect();
             const shareRect = share.getBoundingClientRect();
-            const headers = Array.from(root.querySelectorAll(
+            const nativeHeaders = Array.from(root.querySelectorAll(
                 '#player_playlist1, #player_playlist2, #player_playlist3, #player_playlist4, #player_playlist5'
-            )).map(element => element.firstElementChild?.getBoundingClientRect())
+            ));
+            const headers = nativeHeaders.map(element => element.firstElementChild?.getBoundingClientRect())
                 .filter(rect => rect?.width > 0 && rect.height > 0);
             const left = Math.max(rootRect.left + 4, ...headers.map(rect => rect.right)) - rootRect.left + 8;
             const row = controls.querySelector('.gowo-player-control-row');
             const top = Math.max(0, shareRect.top - rootRect.top - 20);
-            setStyle(row, 'left', `${left}px`);
+            // Keep the last position if auto-hide removes the native layout boxes.
+            if (headers.length || !nativeHeaders.length || !row.style.left) setStyle(row, 'left', `${left}px`);
             setStyle(row, 'right', `${Math.max(0, rootRect.right - shareRect.left + 28)}px`);
             setStyle(row, 'top', `${top}px`);
             const refresh = controls.querySelector('button');
             setStyle(refresh, 'left', `${shareRect.left - rootRect.left - 20}px`);
             setStyle(refresh, 'top', `${top}px`);
+            syncVisibility(root, nativeHeaders);
             setReady(true);
         }
 
@@ -129,7 +164,7 @@
         });
         observer.observe(document.documentElement, {
             childList: true, subtree: true, characterData: true,
-            attributes: true, attributeFilter: ['style', 'class']
+            attributes: true, attributeFilter: ['style', 'class', 'hidden']
         });
         window.addEventListener('resize', schedule);
         injectCSS(`

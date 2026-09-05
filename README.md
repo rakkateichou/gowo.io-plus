@@ -46,6 +46,8 @@ In the supported PlayerJS layout, the player dropdown follows the episode/audio
 controls, and the admin notice shares the same row. Share is hidden completely;
 Refresh stays at the right edge. The dropdown and Refresh call
 Gowo's original controls, and the notice stays synchronized with the room.
+The new controls fade out and reappear with the native episode/audio controls;
+while hidden, they cannot intercept clicks or keyboard focus.
 The iframe fills the available pane height without startup scrolling.
 
 The original Gowo controls remain available until the embedded toolbar is ready,

@@ -9,7 +9,7 @@ import { IDBFactory } from 'fake-indexeddb';
 const runtime = readFileSync(new URL('../gowo.io-plus.js', import.meta.url), 'utf8');
 const settings = '<app-chat-settings-room><div class="settings"><form><h3>Настройки комнаты</h3></form></div></app-chat-settings-room>';
 const chat = content => `<app-chat-messages-room><div class="messages-wrapper"><div class="messages">${content}</div></div></app-chat-messages-room>${settings}`;
-const message = (id, text = 'Hello', author = 'Руслан Эммм', quote = '') => `<div class="message" id="${id}"><div class="user"><div class="text"><div class="header-message"><p>${author}</p></div>${quote}<div class="w-100">${text}</div></div><ul class="actions"><app-icon-undo></app-icon-undo></ul></div>`;
+const message = (id, text = 'Hello', author = 'Руслан Эммм', quote = '') => `<div class="message" id="${id}"><div class="user"><div class="text"><div class="header-message"><p>${author}</p></div>${quote}<div class="w-100">${text}</div></div><ul class="actions"><app-icon-undo></app-icon-undo></ul></div></div>`;
 const quote = '<div class="text__reply"><p class="text__reply__name">Друг Другов</p><p class="text__reply__text">Quoted :pog:</p></div>';
 
 // Same ID length/shape and nested markup as the reported Gowo message, but
@@ -395,4 +395,84 @@ test('blocked storage shows a settings error but leaves chat formatting and init
     assert.equal(h.document.querySelector('#m0 .header-message p').textContent, 'Руслан:');
     const wrapper = h.document.querySelector('.messages-wrapper');
     assert.equal(wrapper.scrollTop, wrapper.scrollHeight - 100);
+});
+
+const grouping = h => [...h.document.querySelectorAll('.messages .message')].map(element => ({
+    id: element.dataset.gowoHistoryId || element.id,
+    consecutive: element.classList.contains('gowo-consecutive-message'),
+    name: element.querySelector('.header-message > p')?.textContent
+}));
+
+test('restored messages group consecutive full author names, including emotes and replies', async () => {
+    const first = harness({ content:
+        message('m1', 'Tea :teatime:', 'Руслан Эммм') +
+        message('m2', ':peepohappy: :teatime:', 'Руслан Эммм', quote) +
+        message('m3', 'Different person, same first name', 'Руслан Другой') +
+        message('m4', 'First person again', 'Руслан Эммм')
+    });
+    await first.settle();
+    const reload = harness({ database: first.database });
+    await reload.settle();
+    assert.deepEqual(grouping(reload).map(row => row.consecutive), [false, true, false, false]);
+    assert.deepEqual(grouping(reload).map(row => row.name), ['Руслан:', 'Руслан:', 'Руслан:', 'Руслан:']);
+    assert.equal(reload.document.querySelector('[data-gowo-history-id="m2"] .text__reply__name').textContent, 'Друг');
+    assert.equal(reload.document.querySelector('[data-gowo-history-id="m2"]').querySelectorAll('.gowo-chat-emote').length, 3);
+    const before = reload.document.querySelector('.messages').innerHTML;
+    await reload.settle();
+    assert.equal(reload.document.querySelector('.messages').innerHTML, before, 'repeated passes preserve grouping');
+});
+
+test('grouping crosses the restored/live boundary and continues for new arrivals', async () => {
+    const first = harness({ content: message('m1') + message('m2') });
+    await first.settle();
+    const reload = harness({ database: first.database, content: message('m2') });
+    await reload.settle();
+    assert.deepEqual(grouping(reload).map(row => [row.id, row.consecutive]), [['m1', false], ['m2', true]]);
+    reload.add('m3');
+    reload.add('m4', 'Another sender', 'Друг Другов');
+    reload.add('m5', 'Another from that sender', 'Друг Другов');
+    await reload.settle();
+    assert.deepEqual(grouping(reload).map(row => row.consecutive), [false, true, true, false, true]);
+    assert.deepEqual((await stored(first.database)).messages.map(entry => entry.author),
+        ['Руслан Эммм', 'Руслан Эммм', 'Руслан Эммм', 'Друг Другов', 'Друг Другов']);
+});
+
+test('clearing restored messages reveals the first live sender name again', async () => {
+    const first = harness({ content: message('m1') + message('m2') });
+    await first.settle();
+    const reload = harness({ database: first.database, content: message('m2') });
+    await reload.settle();
+    assert.equal(grouping(reload)[1].consecutive, true);
+    reload.clock.now += 100;
+    reload.document.querySelector('.gowo-history-setting button').click();
+    await reload.settle();
+    assert.deepEqual(grouping(reload), [{ id: 'm2', consecutive: false, name: 'Руслан:' }]);
+});
+
+test('group leader changes preserve live name and crown nodes when history storage is unavailable', async () => {
+    const withCrown = id => message(id).replace('<p>', '<app-icon-crown></app-icon-crown><p>');
+    const h = harness({ database: null, content: withCrown('m1') + withCrown('m2') });
+    await h.settle();
+    const second = h.document.querySelector('#m2');
+    const name = second.querySelector('.header-message p');
+    const crown = second.querySelector('app-icon-crown');
+    assert.equal(grouping(h)[1].consecutive, true);
+    assert.ok(name);
+    assert.ok(crown);
+    h.document.querySelector('#m1').remove();
+    await h.settle();
+    assert.equal(grouping(h)[0].consecutive, false);
+    assert.equal(second.querySelector('.header-message p'), name);
+    assert.equal(second.querySelector('app-icon-crown'), crown);
+});
+
+test('system messages and replacement room transcripts start new sender groups', async () => {
+    const h = harness({ content: message('m1') + '<div class="message">System notice</div>' + message('m2') });
+    await h.settle();
+    assert.deepEqual(grouping(h).map(row => row.consecutive), [false, false, false]);
+    h.window.location.pathname = '/orooms/room-b';
+    h.apply();
+    h.document.body.innerHTML = chat(message('b1') + message('b2'));
+    await h.settle();
+    assert.deepEqual(grouping(h).map(row => row.consecutive), [false, true]);
 });

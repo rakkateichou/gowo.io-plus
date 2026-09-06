@@ -1663,7 +1663,7 @@
         second: '2-digit'
     });
 
-    let lastFullNickname = null;
+    const messageAuthors = new WeakMap();
 
     const replyAuthorNames = new WeakMap();
 
@@ -1889,6 +1889,7 @@
             message.className = 'message gowo-history-message';
             message.dataset.formatted = '1';
             message.dataset.gowoHistoryId = entry.id;
+            messageAuthors.set(message, { id: message.id, author: entry.author });
             message.dataset.gowoMessageTime = new Date(entry.receivedAt).toLocaleString();
             const user = document.createElement('div');
             user.className = 'user';
@@ -1928,6 +1929,7 @@
         const firstLive = room.list.querySelector(':scope > .message[id]');
         const repeatAnchor = [...room.list.childNodes].reverse().find(node => node.nodeType === 8);
         room.list.insertBefore(archive, firstLive || repeatAnchor || null);
+        syncMessageGrouping();
         if (chatScroll?.follow) scheduleChatBottom();
         else wrapper.scrollTop = wrapper.scrollHeight - bottomOffset;
     }
@@ -2058,7 +2060,6 @@
             room.archive?.remove();
             room.list = list;
             room.archive = null;
-            lastFullNickname = null;
             syncChatScroll(wrapper, list);
         }
         captureChatMessages(room); // Before name shortening and emote substitution.
@@ -2173,26 +2174,39 @@
             renderMessageEmotes(el);
         }
 
+        const remembered = messageAuthors.get(el);
+        if (isUserMessage && (!remembered || remembered.id !== el.id)) {
+            const captured = chatHistoryNodes.get(el);
+            const author = (captured?.id === el.id && captured.author) ||
+                el.querySelector('app-picture img[alt]')?.getAttribute('alt')?.trim() ||
+                el.querySelector('.header-message > p')?.textContent.trim();
+            if (author) messageAuthors.set(el, { id: el.id, author });
+        }
         if (el.dataset.formatted === '1') return;
 
         const nicknameEl = el.querySelector('.header-message > p');
         if (nicknameEl) {
-            const fullNickname = nicknameEl.textContent.trim();
-            const shortName = fullNickname.split(/\s+/)[0];
-
+            const fullNickname = messageAuthors.get(el)?.author || nicknameEl.textContent.trim();
             nicknameEl.style.color = stringToColor(fullNickname);
-
-            if (fullNickname === lastFullNickname) {
-                const crown = el.querySelector('app-icon-crown');
-                if (crown) crown.remove();
-                nicknameEl.remove();
-            } else {
-                nicknameEl.textContent = shortName + ':';
-                lastFullNickname = fullNickname;
-            }
+            nicknameEl.textContent = fullNickname.split(/\s+/)[0] + ':';
         }
 
         el.dataset.formatted = '1';
+    }
+
+    function syncMessageGrouping() {
+        for (const chat of document.querySelectorAll('app-chat-messages-room')) {
+            let previousAuthor = null;
+            // querySelectorAll includes saved and live messages in visual order,
+            // crossing the archive wrapper. System notices start a new group.
+            for (const message of chat.querySelectorAll('.message')) {
+                const record = messageAuthors.get(message);
+                const author = record?.id === message.id ? record.author : null;
+                const consecutive = Boolean(author && author === previousAuthor);
+                message.classList.toggle('gowo-consecutive-message', consecutive);
+                previousAuthor = author;
+            }
+        }
     }
 
     once('css', () => injectCSS(`
@@ -2266,6 +2280,9 @@
             flex-direction: column!important;
             align-items: stretch!important;
         }
+        /* Retain the nodes so a new group leader can show its name and crown. */
+        .message.gowo-consecutive-message .header-message > p,
+        .message.gowo-consecutive-message app-icon-crown { display: none!important; }
         .header-message { width: auto!important; }
         .header-message p { font-weight: bold; margin-right: 5px; }
 
@@ -2751,6 +2768,7 @@
 
         const messages = document.querySelectorAll('.message');
         if (messages) messages.forEach(formatMessage);
+        syncMessageGrouping();
 
         const textarea = document.querySelector('textarea');
         if (textarea) textarea.placeholder = 'Текст';

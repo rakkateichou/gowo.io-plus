@@ -13,7 +13,7 @@ A userscript for Tampermonkey and Safari Userscripts that enhances Gowo.io rooms
 - Simple, uncircled chat-header icons with the original controls and tooltips
 - A responsive 48-emote 7TV picker with `:token:` insertion and inline animated rendering
 - A dedicated Send button to the right of the chat field
-- Shared coloured cursors and smooth trails while holding `X` over the player
+- Shared coloured cursors and smooth trails while holding `Ctrl` over the player
 - Best-effort removal of Gowo.io ad loaders and injected video-ad overlays
 - A scroll-free video pane with player selection, admin notice and Refresh in the native player toolbar
 - Compact settings typography and a saved, default-on option to hide the call button
@@ -31,7 +31,7 @@ retired tokens still render in existing messages.
 
 ## Shared cursor drawing
 
-Hold `X` and move the pointer over the video to draw. Release `X`, switch tabs,
+Hold `Ctrl` and move the pointer over the video to draw. Release `Ctrl`, switch tabs,
 or move away from the player to clear the cursor and its trail. The shortcut is
 ignored while typing in a text field.
 

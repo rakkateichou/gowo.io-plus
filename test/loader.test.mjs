@@ -188,7 +188,7 @@ test('the actual runtime loads the player bridge and still sends fresh cursor po
     h.respond(runtime);
     await flush();
     assert.equal(h.errors.length, 0);
-    h.events.get('keydown')({ code: 'KeyX', preventDefault() {} });
+    h.events.get('keydown')({ key: 'Control', code: 'ControlLeft', ctrlKey: true, preventDefault() {} });
     h.events.get('mousemove')({ clientX: 250, clientY: 125 });
     const cursorMessages = h.messages.filter(([message]) => message.source === 'gowo-plus-cursor-bridge-v1');
     assert.equal(cursorMessages[0][0].type, 'start');

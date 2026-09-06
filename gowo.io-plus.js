@@ -5,6 +5,8 @@
     'use strict';
 
     const cursorBridgeMarker = 'gowo-plus-cursor-bridge-v1';
+    const isCursorDrawKey = event => event.key === 'Control' ||
+        event.code === 'ControlLeft' || event.code === 'ControlRight';
     const toolbarBridgeMarker = 'gowo-plus-player-toolbar-v1';
 
     function initPlayerToolbarBridge() {
@@ -242,7 +244,7 @@
         }, true);
 
         document.addEventListener('keydown', event => {
-            if (event.code !== 'KeyX' || event.repeat || event.ctrlKey ||
+            if (!isCursorDrawKey(event) || event.repeat || holding ||
                 event.metaKey || event.altKey ||
                 isEditableElement(event.target)) {
                 return;
@@ -255,7 +257,7 @@
         }, true);
 
         document.addEventListener('keyup', event => {
-            if (event.code !== 'KeyX' || !holding) return;
+            if (!isCursorDrawKey(event) || event.ctrlKey || !holding) return;
             event.preventDefault();
             holding = false;
             send('stop');
@@ -1387,7 +1389,7 @@
     }
 
     document.addEventListener('keydown', event => {
-        if (event.code !== 'KeyX' || event.repeat || event.ctrlKey ||
+        if (!isCursorDrawKey(event) || event.repeat || cursorHolding ||
             event.metaKey || event.altKey || isEditableElement(event.target)) {
             return;
         }
@@ -1397,7 +1399,7 @@
     }, true);
 
     document.addEventListener('keyup', event => {
-        if (event.code !== 'KeyX' || !cursorHolding) return;
+        if (!isCursorDrawKey(event) || event.ctrlKey || !cursorHolding) return;
         event.preventDefault();
         stopCursorDrawing();
     }, true);

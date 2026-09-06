@@ -2021,6 +2021,12 @@
         .left-place { width: 85%!important; }
         .right-place { width: 15%!important; opacity: 0.5; }
 
+        /* The native custom element defaults to inline. Its block chat child
+           leaves stale horizontal overflow in Safari after the composer shrinks.
+           Give the host its own block box so overflow updates during startup. */
+        .right-place > app-chat-layout-room {
+            display: block; width: 100%; min-width: 0;
+        }
         .right-place .chat {
             box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0;
         }

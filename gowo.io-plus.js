@@ -587,6 +587,35 @@
         input.setSelectionRange(caret, caret);
     }
 
+    function fitEmotePickerLabels(picker) {
+        if (picker.hidden || !picker.isConnected) return;
+        for (const label of picker.querySelectorAll('.gowo-emote-option small')) {
+            // Re-measure at the normal size whenever the picker width changes.
+            label.style.removeProperty('font-size');
+            label.style.removeProperty('white-space');
+            const text = label.firstChild;
+            if (!text || text.length < 3 || !label.clientWidth) continue;
+            const range = document.createRange();
+            range.selectNodeContents(label);
+            const lines = [...range.getClientRects()];
+            if (lines.length !== 2) continue;
+            // If the third character from the end is still on the first line,
+            // only one or two characters were stranded on the second line.
+            range.setStart(text, text.length - 3);
+            range.setEnd(text, text.length - 2);
+            if (Math.abs(range.getBoundingClientRect().top - lines[0].top) > 1) continue;
+            const fontSize = parseFloat(window.getComputedStyle(label).fontSize);
+            label.style.whiteSpace = 'nowrap';
+            range.selectNodeContents(label);
+            const naturalWidth = range.getBoundingClientRect().width;
+            if (naturalWidth > label.clientWidth) {
+                label.style.fontSize = `${fontSize * label.clientWidth / naturalWidth * 0.98}px`;
+            }
+        }
+    }
+
+    let emotePickerResizeObserver = null;
+
     function injectEmotePicker() {
         const form = document.querySelector(
             'app-chat-messages-room .form-message'
@@ -605,6 +634,7 @@
             form.contains(existingSendButton)) {
             return;
         }
+        emotePickerResizeObserver?.disconnect();
         existingPicker?.remove();
         existingToggle?.remove();
         existingSendButton?.remove();
@@ -657,6 +687,27 @@
         hint.textContent = 'You can also type an emote token, like :pog:';
         picker.append(hint);
 
+        let fitScheduled = false;
+        const scheduleLabelFit = () => {
+            if (fitScheduled || picker.hidden || !picker.isConnected) return;
+            fitScheduled = true;
+            requestAnimationFrame(() => {
+                fitScheduled = false;
+                fitEmotePickerLabels(picker);
+            });
+        };
+        if (typeof window.ResizeObserver === 'function') {
+            let lastWidth = -1;
+            emotePickerResizeObserver = new window.ResizeObserver(entries => {
+                const width = entries[0].contentRect.width;
+                if (width === lastWidth) return;
+                lastWidth = width;
+                scheduleLabelFit();
+            });
+            emotePickerResizeObserver.observe(grid);
+        }
+        document.fonts?.ready.then(scheduleLabelFit);
+
         toggle.addEventListener('mousedown', event => {
             event.preventDefault();
         });
@@ -665,6 +716,7 @@
             const willOpen = picker.hidden;
             picker.hidden = !willOpen;
             toggle.setAttribute('aria-expanded', String(willOpen));
+            if (willOpen) scheduleLabelFit();
             input.focus({ preventScroll: true });
         });
         picker.addEventListener('mousedown', event => {

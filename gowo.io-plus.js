@@ -442,6 +442,7 @@
     const emoteToggleId = 'gowo-emote-toggle';
     const emotePickerId = 'gowo-emote-picker';
     const sendButtonId = 'gowo-send-button';
+    const emoteAutocompleteId = 'gowo-emote-autocomplete';
 
     function createSevenTvTokenPattern() {
         return new RegExp(`(${sevenTvTokenSource})`, 'gi');
@@ -518,20 +519,21 @@
             .forEach(renderSevenTvEmotes);
     }
 
-    function insertEmoteAtCaret(input, token) {
+    function insertEmoteAtCaret(input, token, replacement = null) {
         if (!input || !sevenTvEmoteByToken.has(token.toLowerCase())) {
             return false;
         }
 
         const value = input.value || '';
-        const start = Number.isInteger(input.selectionStart) ?
-            input.selectionStart : value.length;
-        const end = Number.isInteger(input.selectionEnd) ?
-            input.selectionEnd : start;
+        const start = replacement?.start ?? (Number.isInteger(input.selectionStart) ?
+            input.selectionStart : value.length);
+        const end = replacement?.end ?? (Number.isInteger(input.selectionEnd) ?
+            input.selectionEnd : start);
         const before = value.slice(0, start);
         const after = value.slice(end);
-        const prefix = before && !/\s$/.test(before) ? ' ' : '';
-        const suffix = after && !/^\s/.test(after) ? ' ' : '';
+        const prefix = !replacement && before && !/\s$/.test(before) ? ' ' : '';
+        const suffix = replacement ? (!after || !/^[\s.,!?;:)\]}]/.test(after) ? ' ' : '') :
+            (after && !/^\s/.test(after) ? ' ' : '');
         const insertion = `${prefix}${token}${suffix}`;
         const nextValue = `${before}${insertion}${after}`;
 
@@ -548,11 +550,10 @@
         } else {
             input.value = nextValue;
         }
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-
         const caret = start + insertion.length;
         input.focus({ preventScroll: true });
         input.setSelectionRange(caret, caret);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
         return true;
     }
 
@@ -567,6 +568,7 @@
     function sendMessageThroughGowo(input) {
         if (!input?.value.trim()) return;
 
+        emoteAutocomplete?.close(true);
         input.focus({ preventScroll: true });
         input.dispatchEvent(new KeyboardEvent('keydown', {
             key: 'Enter',
@@ -585,6 +587,144 @@
         input.focus({ preventScroll: true });
         const caret = input.value.length;
         input.setSelectionRange(caret, caret);
+    }
+
+    function getEmoteCompletion(input) {
+        const caret = input.selectionStart;
+        if (!Number.isInteger(caret) || caret !== input.selectionEnd) return null;
+        const value = input.value;
+        // A token begins at a word boundary, not inside a URL, time or another token.
+        const match = value.slice(0, caret).match(/(?:^|[\s([{]):([a-z0-9]+)$/i);
+        if (!match) return null;
+        const query = match[1].toLowerCase();
+        const start = caret - query.length - 1;
+        const end = caret + value.slice(caret).match(/^[a-z0-9]*:?/i)[0].length;
+        const matches = sevenTvEmotes.filter(emote =>
+            emote.token.includes(query) || emote.label.toLowerCase().includes(query)
+        ).sort((a, b) => Number(b.token.slice(1).startsWith(query)) -
+            Number(a.token.slice(1).startsWith(query))).slice(0, 8);
+        return matches.length ? { start, end, matches, key: JSON.stringify([value, caret]) } : null;
+    }
+
+    let emoteAutocomplete = null;
+
+    function initEmoteAutocomplete(input, form) {
+        if (emoteAutocomplete?.input === input && emoteAutocomplete.list.isConnected) return;
+        emoteAutocomplete?.destroy();
+        const list = document.createElement('div');
+        list.id = emoteAutocompleteId;
+        list.hidden = true;
+        list.setAttribute('role', 'listbox');
+        list.setAttribute('aria-label', 'Emote suggestions');
+        form.append(list);
+        const previousAutocomplete = input.getAttribute('aria-autocomplete');
+        const previousControls = input.getAttribute('aria-controls');
+        input.setAttribute('aria-autocomplete', 'list');
+        input.setAttribute('aria-controls', [previousControls, list.id].filter(Boolean).join(' '));
+        let current = null;
+        let selected = 0;
+        let dismissed = '';
+        let composing = false;
+        let accepting = false;
+        const listeners = [];
+        const listen = (target, name, fn, capture = false) => {
+            target.addEventListener(name, fn, capture);
+            listeners.push(() => target.removeEventListener(name, fn, capture));
+        };
+        const close = (dismiss = false) => {
+            if (dismiss) dismissed = JSON.stringify([input.value, input.selectionStart]);
+            current = null;
+            list.hidden = true;
+            input.removeAttribute('aria-activedescendant');
+        };
+        const highlight = () => {
+            [...list.children].forEach((option, index) => {
+                option.setAttribute('aria-selected', String(index === selected));
+            });
+            const option = list.children[selected];
+            input.setAttribute('aria-activedescendant', option.id);
+            // Scroll only the suggestion list, never the room or video pane.
+            if (option.offsetTop < list.scrollTop) list.scrollTop = option.offsetTop;
+            else if (option.offsetTop + option.offsetHeight > list.scrollTop + list.clientHeight) {
+                list.scrollTop = option.offsetTop + option.offsetHeight - list.clientHeight;
+            }
+        };
+        const update = () => {
+            if (accepting) return;
+            if (composing || document.activeElement !== input || !input.isConnected ||
+                !document.getElementById(emotePickerId)?.hidden) return close();
+            const next = getEmoteCompletion(input);
+            if (!next || next.key === dismissed) return close();
+            if (next.key === current?.key) return;
+            current = next;
+            selected = 0;
+            list.replaceChildren(...next.matches.map((emote, index) => {
+                const option = document.createElement('button');
+                option.type = 'button';
+                option.tabIndex = -1;
+                option.id = `${list.id}-${index}`;
+                option.dataset.index = String(index);
+                option.setAttribute('role', 'option');
+                option.setAttribute('aria-label', `${emote.label} ${emote.token}`);
+                option.title = emote.token;
+                const image = createSevenTvEmoteImage(emote, true);
+                image.setAttribute('aria-hidden', 'true');
+                const label = document.createElement('span');
+                label.textContent = emote.token;
+                option.append(image, label);
+                return option;
+            }));
+            list.hidden = false;
+            highlight();
+        };
+        const accept = index => {
+            if (!current || getEmoteCompletion(input)?.key !== current.key) return close();
+            const emote = current.matches[index];
+            if (!emote) return;
+            accepting = true;
+            try { insertEmoteAtCaret(input, emote.token, current); }
+            finally { accepting = false; close(true); }
+        };
+        listen(input, 'input', update);
+        listen(input, 'click', update);
+        listen(input, 'focus', update);
+        listen(input, 'compositionstart', () => { composing = true; close(); });
+        listen(input, 'compositionend', () => { composing = false; update(); });
+        listen(input, 'blur', event => { if (!list.contains(event.relatedTarget)) close(true); });
+        listen(document, 'selectionchange', () => { if (document.activeElement === input) update(); });
+        listen(document, 'click', event => {
+            if (event.target !== input && !list.contains(event.target)) close(true);
+        });
+        listen(input, 'keydown', event => {
+            if (composing || event.isComposing || event.keyCode === 229 || event.ctrlKey ||
+                event.metaKey || event.altKey || event.shiftKey) return;
+            if (!current || list.hidden) return;
+            if (!['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(event.key)) return;
+            // Capture before Gowo's Enter handler so choosing an emote cannot send chat.
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            if (event.key === 'Escape') close(true);
+            else if (event.key === 'Enter' || event.key === 'Tab') accept(selected);
+            else {
+                selected = (selected + (event.key === 'ArrowDown' ? 1 : -1) +
+                    current.matches.length) % current.matches.length;
+                highlight();
+            }
+        }, true);
+        listen(list, 'mousedown', event => event.preventDefault());
+        listen(list, 'click', event => {
+            const option = event.target.closest('button[data-index]');
+            if (option && list.contains(option)) accept(Number(option.dataset.index));
+        });
+        emoteAutocomplete = { input, list, update, close, destroy() {
+            close();
+            listeners.forEach(remove => remove());
+            list.remove();
+            for (const [name, value] of [['aria-autocomplete', previousAutocomplete], ['aria-controls', previousControls]]) {
+                if (value === null) input.removeAttribute(name);
+                else input.setAttribute(name, value);
+            }
+        } };
     }
 
     function fitEmotePickerLabels(picker) {
@@ -625,6 +765,7 @@
         const footerRow = inputWrapper?.parentElement;
         if (!form || !input || !inputWrapper || !footerRow) return;
 
+        initEmoteAutocomplete(input, form);
         const existingPicker = document.getElementById(emotePickerId);
         const existingToggle = document.getElementById(emoteToggleId);
         const existingSendButton = document.getElementById(sendButtonId);
@@ -720,6 +861,7 @@
         });
         toggle.addEventListener('click', event => {
             event.stopPropagation();
+            emoteAutocomplete?.close(true);
             const willOpen = picker.hidden;
             picker.hidden = !willOpen;
             toggle.setAttribute('aria-expanded', String(willOpen));
@@ -2402,6 +2544,38 @@
             stroke-linecap: round;
             stroke-linejoin: round;
             pointer-events: none;
+        }
+        #${emoteAutocompleteId} {
+            position: absolute;
+            left: 0; right: 0; bottom: calc(100% + 6px);
+            z-index: 11;
+            box-sizing: border-box;
+            max-height: min(45vh, 300px);
+            overflow-x: hidden;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            padding: 4px;
+            border: 1px solid #555;
+            border-radius: 9px;
+            background: #111;
+            box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.55);
+        }
+        #${emoteAutocompleteId}[hidden] { display: none!important; }
+        #${emoteAutocompleteId} button {
+            display: flex; align-items: center; gap: 8px;
+            box-sizing: border-box; width: 100%; min-width: 0;
+            padding: 5px; border: 0; border-radius: 5px;
+            background: transparent; color: #ddd;
+            font: 12px/1.3 sans-serif; text-align: left; cursor: pointer;
+        }
+        #${emoteAutocompleteId} button[aria-selected="true"],
+        #${emoteAutocompleteId} button:hover { background: #333; color: #fff; }
+        #${emoteAutocompleteId} img {
+            width: 26px!important; height: 26px!important;
+            flex: 0 0 26px; object-fit: contain;
+        }
+        #${emoteAutocompleteId} span {
+            min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
         #${emotePickerId} {
             box-sizing: border-box;

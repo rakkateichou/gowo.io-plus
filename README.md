@@ -11,7 +11,7 @@ A userscript for Tampermonkey and Safari Userscripts that enhances Gowo.io rooms
 - Reply text always starts below its quoted message
 - First-name-only quoted authors, using their chat nickname colour
 - Simple, uncircled chat-header icons with the original controls and tooltips
-- A responsive 48-emote 7TV picker with `:token:` insertion and inline animated rendering
+- A responsive 48-emote 7TV picker with `:token:` autocomplete and inline animated rendering
 - A dedicated Send button to the right of the chat field
 - Shared coloured cursors and smooth trails while holding `Ctrl` over the player
 - Best-effort removal of Gowo.io ad loaders and injected video-ad overlays
@@ -21,6 +21,12 @@ A userscript for Tampermonkey and Safari Userscripts that enhances Gowo.io rooms
 ## 7TV emotes
 
 Use the **☺** button beside the chat box, or type a token such as `:pog:`.
+Type a colon and part of a name, such as `:pe`, to see up to eight matching
+emotes. Use **↑/↓** to choose, **Enter** or **Tab** to insert, or click a preview.
+**Escape** dismisses suggestions. Enter selects the emote while the list is
+open; press Enter again to send the completed message. Matching ignores case
+and also finds parts of names, such as `:run` for `:peeporun:`.
+
 The token stays ordinary Gowo.io chat text and is rendered as an emote for
 people running Gowo.io+. The fixed 48-emote catalogue matches the one in the
 [JellyWatchParty fork](https://github.com/rakkateichou/JellyWatchParty).

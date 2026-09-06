@@ -270,6 +270,9 @@ test('restored history follows the welcome notice and precedes the live message 
     assert.equal(list.firstElementChild.className, 'welcome');
     assert.equal(list.lastElementChild.className, 'gowo-chat-history');
     assert.equal(list.lastChild.nodeType, 8);
+    assert.equal(list.querySelector('.gowo-history-heading'), null);
+    assert.ok([...list.querySelector('.gowo-chat-history').children].every(el => el.classList.contains('message')));
+    assert.ok(h.document.querySelector('.gowo-history-setting button')); // Management stays in Settings, not the transcript.
 });
 
 test('an observed native deletion is removed from the archive rather than resurrected after reload', async () => {

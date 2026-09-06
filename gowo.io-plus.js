@@ -1681,12 +1681,6 @@
         archive.className = 'gowo-chat-history';
         room.archive = archive;
         room.rendered = signature;
-        if (missing.length) {
-            const heading = document.createElement('div');
-            heading.className = 'gowo-history-heading';
-            heading.textContent = 'Сохранённая история';
-            archive.append(heading);
-        }
         for (const entry of missing) {
             const message = document.createElement('div');
             message.className = 'message gowo-history-message';
@@ -2060,14 +2054,20 @@
         .header-message { width: auto!important; }
         .header-message p { font-weight: bold; margin-right: 5px; }
 
-        .gowo-history-heading { padding: 8px; color: #888; font-size: 11px; }
+        /* Restored nodes do not carry Angular's scoped attributes. Match the
+           native chat typography instead of inheriting the larger page font. */
+        .gowo-history-message { font-size: 13px; }
         .gowo-history-message .user { display: block; min-width: 0; width: 100%; }
         .gowo-history-message .text { display: block!important; overflow-wrap: anywhere; }
+        .gowo-history-message .text p { line-height: 1.3; }
         .gowo-history-message .header-message, .gowo-history-message .header-message p { display: inline; }
+        .gowo-history-message .header-message p { margin-top: 0; margin-bottom: 0; }
         .gowo-history-message .text > .w-100 { display: inline; white-space: pre-wrap; }
         .gowo-history-message.gowo-message-has-reply .text > .w-100 { display: block; }
-        .gowo-history-message .text__reply { border-left: 1px solid #777; padding-left: 8px; margin: 4px 0; font-size: 12px; }
+        .gowo-history-message .text__reply { border-left: 1px solid #777; padding-left: 8px; margin: 4px 0; }
         .gowo-history-message .text__reply p { margin: 0; white-space: pre-wrap; }
+        .gowo-history-message .text__reply__name { font-size: 10px; margin-bottom: 2px; }
+        .gowo-history-message .text__reply__text { font-size: 9px; color: #fff!important; }
         .gowo-history-message img:not(.gowo-chat-emote) { display: block; max-width: 100%; height: auto; }
         .gowo-history-setting { margin: 8px 0; }
         .gowo-history-setting p { margin: 0 0 6px; }

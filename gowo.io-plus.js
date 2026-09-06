@@ -2018,7 +2018,7 @@
         .left-place { width: 85%!important; }
         .right-place { width: 15%!important; opacity: 0.5; }
 
-        .chat { border-left: 0px!important; }
+        .chat { border-left: 0px!important; padding: 5px!important; }
         .chat-header { justify-content: center!important; }
         .chat-header .actions > img[alt="settings room"],
         .chat-header .actions > img[alt="list room"],
@@ -2216,6 +2216,11 @@
             flex: 1 1 auto;
         }
         app-chat-messages-room .chat-footer textarea {
+            box-sizing: border-box!important;
+            width: 100%!important;
+            min-width: 0!important;
+            /* Native CSS reserves 45px for a GIF icon, even when absent. */
+            padding: 5px 8px!important;
             height: var(--gowo-chat-control-height)!important;
             min-height: var(--gowo-chat-control-height)!important;
             border: 1px solid var(--gowo-chat-control-border)!important;
@@ -2223,6 +2228,22 @@
             background: var(--gowo-chat-control-bg)!important;
             color: var(--gowo-chat-control-text)!important;
             transition: border-color 120ms ease, box-shadow 120ms ease;
+        }
+        app-chat-messages-room .chat-footer .textarea:has(#search-gifts-button:not([hidden])) textarea {
+            padding-right: 32px!important;
+        }
+        app-chat-messages-room .chat-footer #search-gifts-button {
+            right: 6px!important;
+            top: 8px!important;
+            width: 20px;
+            height: 20px;
+            line-height: 0;
+            /* The native black SVG otherwise disappears on our black input. */
+            filter: invert(1);
+        }
+        app-chat-messages-room .chat-footer #search-gifts-button svg {
+            width: 100%;
+            height: 100%;
         }
         app-chat-messages-room .chat-footer textarea:focus {
             border-color: #fff!important;

@@ -128,3 +128,15 @@ test('ring masking preserves native header images and click handlers', () => {
     assert.match(css, /\.chat-header \.actions > img\[alt="settings room"\]/);
     assert.match(css, /mask-image: radial-gradient\(circle closest-side, #000 75%, transparent 76%\)/);
 });
+
+test('composer uses its full width without unconditional native GIF padding', () => {
+    const { document } = harness();
+    const css = document.querySelector('style').textContent;
+    assert.match(css, /\.chat \{[^}]*padding: 5px!important/);
+    const inputRule = css.match(/\.chat-footer textarea \{([^}]+)\}/)[1];
+    assert.match(inputRule, /box-sizing: border-box!important/);
+    assert.match(inputRule, /width: 100%!important/);
+    assert.match(inputRule, /min-width: 0!important/);
+    assert.match(inputRule, /padding: 5px 8px!important/);
+    assert.match(css, /:has\(#search-gifts-button:not\(\[hidden\]\)\) textarea \{\s*padding-right: 32px!important/);
+});

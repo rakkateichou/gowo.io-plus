@@ -1464,6 +1464,462 @@
 
     const replyAuthorNames = new WeakMap();
 
+    // Local, bounded archives; never store or replay arbitrary message HTML.
+    const chatHistoryLimit = 1000;
+    const chatHistoryNodes = new WeakMap();
+    let chatHistoryDatabase;
+    let chatHistoryRoom = null;
+    let chatScroll = null;
+    const chatHistoryChannel = typeof window.BroadcastChannel === 'function' ?
+        new window.BroadcastChannel('gowo-plus-chat-history-v1') : null;
+
+    function historyUrl(value, image = false) {
+        try {
+            const url = new URL(value, 'https://gowo.io');
+            if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || value.length > 2048) return '';
+            // Gowo's native GIF picker uses Giphy. Do not reload arbitrary images
+            // or tracking pixels from untrusted stored content.
+            if (image && (url.protocol !== 'https:' ||
+                !(url.hostname === 'giphy.com' || url.hostname.endsWith('.giphy.com')))) return '';
+            return url.href;
+        } catch { return ''; }
+    }
+
+    function historyParts(element) {
+        const parts = [];
+        let remaining = 4000;
+        const text = value => {
+            if (!value || remaining <= 0 || parts.length >= 128) return;
+            const clipped = value.slice(0, remaining);
+            remaining -= clipped.length;
+            if (parts.at(-1)?.type === 'text') parts.at(-1).text += clipped;
+            else parts.push({ type: 'text', text: clipped });
+        };
+        const walk = node => {
+            if (parts.length >= 128 || remaining <= 0) return;
+            if (node.nodeType === 3) return text(node.nodeValue || '');
+            const tag = node.tagName?.toLowerCase();
+            if (['script', 'style', 'iframe', 'object', 'svg'].includes(tag)) return;
+            if (tag === 'br') return text('\n');
+            if (tag === 'img') {
+                if (node.classList.contains('gowo-chat-emote')) return text(node.title);
+                const url = historyUrl(node.getAttribute('src') || '', true);
+                if (url) parts.push({ type: 'image', url, text: (node.getAttribute('alt') || 'GIF').slice(0, 100) });
+                else text(node.getAttribute('alt') || '');
+                return;
+            }
+            if (tag === 'a') {
+                const url = historyUrl(node.getAttribute('href') || '');
+                if (url) {
+                    const label = (node.textContent || url).slice(0, remaining);
+                    remaining -= label.length;
+                    parts.push({ type: 'link', url, text: label });
+                    return;
+                }
+            }
+            for (const child of node.childNodes || []) walk(child);
+        };
+        if (element) walk(element);
+        return parts;
+    }
+
+    function cleanHistoryParts(parts) {
+        if (!Array.isArray(parts)) return [];
+        let remaining = 4000;
+        return parts.slice(0, 128).flatMap(part => {
+            if (!part || typeof part.text !== 'string' || remaining <= 0) return [];
+            const text = part.text.slice(0, remaining);
+            remaining -= text.length;
+            if (part.type === 'text') return [{ type: 'text', text }];
+            if (!['link', 'image'].includes(part.type) || typeof part.url !== 'string') return [];
+            const url = historyUrl(part.url, part.type === 'image');
+            return url ? [{ type: part.type, text, url }] : [{ type: 'text', text }];
+        });
+    }
+
+    function cleanHistoryRoom(value, room) {
+        const messages = new Map();
+        if (value?.room === room && Array.isArray(value.messages)) {
+            for (const entry of value.messages.slice(-chatHistoryLimit)) {
+                if (!entry || typeof entry.id !== 'string' || !entry.id || entry.id.length > 200 ||
+                    typeof entry.author !== 'string' || !entry.author.trim() ||
+                    !Number.isFinite(entry.receivedAt) || entry.receivedAt < 0 || entry.receivedAt > 8640000000000000) continue;
+                messages.set(entry.id, {
+                    id: entry.id, author: entry.author.slice(0, 200), receivedAt: entry.receivedAt,
+                    parts: cleanHistoryParts(entry.parts),
+                    reply: entry.reply && typeof entry.reply.author === 'string' ? {
+                        author: entry.reply.author.slice(0, 200), parts: cleanHistoryParts(entry.reply.parts)
+                    } : null
+                });
+            }
+        }
+        return {
+            room, messages: [...messages.values()],
+            clearedAt: value?.room === room && Number.isFinite(value.clearedAt) ? value.clearedAt : 0,
+            ignoredIds: value?.room === room && Array.isArray(value.ignoredIds) ?
+                value.ignoredIds.filter(id => typeof id === 'string' && id.length <= 200).slice(-2000) : []
+        };
+    }
+
+    function openChatHistory() {
+        if (chatHistoryDatabase) return chatHistoryDatabase;
+        chatHistoryDatabase = new Promise((resolve, reject) => {
+            if (!window.indexedDB) return reject(new Error('History storage unavailable'));
+            const request = window.indexedDB.open('gowo-plus-chat-history', 1);
+            request.onupgradeneeded = () => request.result.createObjectStore('rooms', { keyPath: 'room' });
+            request.onsuccess = () => {
+                request.result.onversionchange = () => request.result.close();
+                resolve(request.result);
+            };
+            request.onerror = () => reject(request.error);
+            request.onblocked = () => reject(new Error('History storage blocked'));
+        });
+        return chatHistoryDatabase;
+    }
+
+    async function historyTransaction(alias, update) {
+        const database = await openChatHistory();
+        return new Promise((resolve, reject) => {
+            const transaction = database.transaction('rooms', update ? 'readwrite' : 'readonly');
+            const store = transaction.objectStore('rooms');
+            const request = store.get(alias);
+            let result;
+            request.onsuccess = () => {
+                result = cleanHistoryRoom(request.result, alias);
+                if (update) {
+                    result = update(result);
+                    store.put(result);
+                }
+            };
+            transaction.oncomplete = () => resolve(result);
+            transaction.onabort = transaction.onerror = () => reject(transaction.error || new Error('History storage failed'));
+        });
+    }
+
+    function scheduleChatBottom() {
+        const current = chatScroll;
+        if (!current || !current.follow || current.scheduled) return;
+        current.scheduled = true;
+        requestAnimationFrame(() => {
+            current.scheduled = false;
+            if (chatScroll !== current || !current.follow || !current.wrapper.isConnected) return;
+            current.wrapper.scrollTop = current.wrapper.scrollHeight;
+            current.lastTop = current.wrapper.scrollTop;
+        });
+    }
+
+    function syncChatScroll(wrapper, list) {
+        if (chatScroll?.wrapper === wrapper) return;
+        chatScroll?.resize?.disconnect();
+        const current = { wrapper, follow: true, lastTop: wrapper.scrollTop, scheduled: false };
+        chatScroll = current;
+        const stop = () => { if (chatScroll === current) current.follow = false; };
+        wrapper.addEventListener('wheel', event => { if (event.deltaY < 0) stop(); }, { passive: true });
+        wrapper.addEventListener('touchstart', stop, { passive: true });
+        wrapper.addEventListener('pointerdown', stop);
+        wrapper.addEventListener('keydown', event => {
+            if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) stop();
+        });
+        wrapper.addEventListener('scroll', () => {
+            if (chatScroll !== current) return;
+            if (wrapper.scrollTop < current.lastTop - 1) current.follow = false;
+            if (wrapper.scrollHeight - wrapper.clientHeight - wrapper.scrollTop <= 2) current.follow = true;
+            current.lastTop = wrapper.scrollTop;
+        }, { passive: true });
+        wrapper.addEventListener('load', scheduleChatBottom, true);
+        if (typeof window.ResizeObserver === 'function') {
+            current.resize = new window.ResizeObserver(scheduleChatBottom);
+            current.resize.observe(wrapper);
+            current.resize.observe(list);
+        }
+        scheduleChatBottom();
+    }
+
+    function appendHistoryParts(element, parts) {
+        for (const part of parts) {
+            if (part.type === 'text') element.append(document.createTextNode(part.text));
+            else if (part.type === 'link') {
+                const link = document.createElement('a');
+                link.textContent = part.text;
+                link.href = part.url;
+                link.target = '_blank';
+                link.rel = 'nofollow noopener noreferrer';
+                element.append(link);
+            } else {
+                const image = document.createElement('img');
+                image.src = part.url;
+                image.alt = part.text;
+                image.loading = 'lazy';
+                image.referrerPolicy = 'no-referrer';
+                element.append(image);
+            }
+        }
+    }
+
+    function renderChatHistory(room) {
+        if (chatHistoryRoom !== room || !room.list?.isConnected || !room.loaded) return;
+        const savedById = new Map(room.data.messages.map(entry => [entry.id, entry]));
+        const nativeIds = new Set([...room.list.querySelectorAll('.message[id]')].map(element => {
+            const saved = savedById.get(element.id);
+            if (saved) element.dataset.gowoMessageTime = new Date(saved.receivedAt).toLocaleString();
+            return element.id;
+        }));
+        const missing = room.data.messages.filter(entry => !nativeIds.has(entry.id) && !room.deleted.has(entry.id));
+        const signature = JSON.stringify(missing);
+        if (room.archive?.isConnected && room.rendered === signature) return;
+        const wrapper = room.list.closest('.messages-wrapper');
+        const bottomOffset = wrapper.scrollHeight - wrapper.scrollTop;
+        room.archive?.remove();
+        const archive = document.createElement('div');
+        archive.className = 'gowo-chat-history';
+        room.archive = archive;
+        room.rendered = signature;
+        if (missing.length) {
+            const heading = document.createElement('div');
+            heading.className = 'gowo-history-heading';
+            heading.textContent = 'Сохранённая история';
+            archive.append(heading);
+        }
+        for (const entry of missing) {
+            const message = document.createElement('div');
+            message.className = 'message gowo-history-message';
+            message.dataset.formatted = '1';
+            message.dataset.gowoHistoryId = entry.id;
+            message.dataset.gowoMessageTime = new Date(entry.receivedAt).toLocaleString();
+            const user = document.createElement('div');
+            user.className = 'user';
+            const text = document.createElement('div');
+            text.className = 'text';
+            const header = document.createElement('div');
+            header.className = 'header-message';
+            const name = document.createElement('p');
+            name.textContent = entry.author.split(/\s+/)[0] + ':';
+            name.style.color = stringToColor(entry.author);
+            header.append(name);
+            text.append(header);
+            if (entry.reply) {
+                message.classList.add('gowo-message-has-reply');
+                const reply = document.createElement('div');
+                reply.className = 'text__reply';
+                const author = document.createElement('p');
+                author.className = 'text__reply__name';
+                author.textContent = entry.reply.author;
+                const quote = document.createElement('p');
+                quote.className = 'text__reply__text';
+                appendHistoryParts(quote, entry.reply.parts);
+                reply.append(author, quote);
+                text.append(reply);
+            }
+            const body = document.createElement('div');
+            body.className = 'w-100';
+            appendHistoryParts(body, entry.parts);
+            text.append(body);
+            user.append(text);
+            message.append(user);
+            renderMessageEmotes(message);
+            archive.append(message);
+        }
+        // Leave Gowo's welcome notice first. Insert before its live repeater,
+        // including the empty-list comment anchor used by Angular at startup.
+        const firstLive = room.list.querySelector(':scope > .message[id]');
+        const repeatAnchor = [...room.list.childNodes].reverse().find(node => node.nodeType === 8);
+        room.list.insertBefore(archive, firstLive || repeatAnchor || null);
+        if (chatScroll?.follow) scheduleChatBottom();
+        else wrapper.scrollTop = wrapper.scrollHeight - bottomOffset;
+    }
+
+    async function flushChatHistory(room) {
+        if (!room.loaded || room.saving || room.failed || (!room.pending.size && !room.deleted.size)) return;
+        const pending = [...room.pending.values()];
+        const deleted = [...room.deleted];
+        room.pending.clear();
+        room.deleted.clear();
+        room.saving = true;
+        try {
+            room.data = await historyTransaction(room.alias, stored => {
+                const messages = new Map(stored.messages.map(entry => [entry.id, entry]));
+                const ignored = new Set([...stored.ignoredIds, ...deleted]);
+                for (const id of deleted) messages.delete(id);
+                for (const entry of pending) {
+                    if (ignored.has(entry.id) || entry.receivedAt <= stored.clearedAt) continue;
+                    const previous = messages.get(entry.id);
+                    messages.set(entry.id, { ...entry, receivedAt: previous?.receivedAt ?? entry.receivedAt });
+                }
+                stored.messages = [...messages.values()].sort((a, b) => a.receivedAt - b.receivedAt).slice(-chatHistoryLimit);
+                stored.ignoredIds = [...ignored].slice(-2000);
+                return stored;
+            });
+            chatHistoryChannel?.postMessage({ room: room.alias });
+        } catch {
+            room.failed = true;
+        } finally {
+            room.saving = false;
+            if (chatHistoryRoom === room) {
+                renderChatHistory(room);
+                injectChatHistorySetting();
+            }
+            if ((room.pending.size || room.deleted.size) && !room.failed) flushChatHistory(room);
+        }
+    }
+
+    function captureChatMessages(room) {
+        for (const element of room.list.querySelectorAll('.message[id]')) {
+            const body = element.querySelector('.text > .w-100');
+            if (!element.querySelector(':scope > .user') || !body || element.id.length > 200) continue;
+            const previous = chatHistoryNodes.get(element);
+            const nickname = element.querySelector('.header-message > p, .text > p');
+            const author = previous?.id === element.id ? previous.author : nickname?.textContent.trim();
+            if (!author) continue;
+            const replyName = element.querySelector('.text__reply__name');
+            const entry = {
+                id: element.id, author: author.slice(0, 200),
+                receivedAt: previous?.id === element.id ? previous.receivedAt : Date.now(),
+                parts: historyParts(body),
+                reply: replyName ? {
+                    author: (replyAuthorNames.get(replyName)?.fullName || replyName.textContent.trim()).slice(0, 200),
+                    parts: historyParts(element.querySelector('.text__reply__text'))
+                } : null
+            };
+            if (JSON.stringify(previous) === JSON.stringify(entry)) continue;
+            chatHistoryNodes.set(element, entry);
+            room.pending.set(entry.id, entry);
+            if (room.pending.size > chatHistoryLimit) room.pending.delete(room.pending.keys().next().value);
+        }
+    }
+
+    async function loadChatHistory(room) {
+        try {
+            room.data = await historyTransaction(room.alias);
+            room.loaded = true;
+            if (chatHistoryRoom !== room) return;
+            renderChatHistory(room);
+            flushChatHistory(room);
+        } catch { room.failed = true; }
+        if (chatHistoryRoom === room) injectChatHistorySetting();
+    }
+
+    function captureChatDeletions(records) {
+        const room = chatHistoryRoom;
+        if (!room?.list) return;
+        const removed = new Set();
+        let deletedNotices = 0;
+        const isDeleted = element => !element.querySelector?.('.user') &&
+            /сообщение удалено|message (?:was )?deleted/i.test(element.textContent || '');
+        for (const record of records) {
+            if (record.target === room.list) {
+                for (const element of record.removedNodes || []) {
+                    const entry = chatHistoryNodes.get(element);
+                    if (entry) removed.add(entry.id);
+                }
+                for (const element of record.addedNodes || []) {
+                    if (element.matches?.('.message') && isDeleted(element)) deletedNotices++;
+                }
+            }
+            const message = record.target.closest?.('.message') || record.target.parentElement?.closest('.message');
+            const previous = message && chatHistoryNodes.get(message);
+            if (previous && isDeleted(message)) room.deleted.add(previous.id);
+        }
+        // Angular replaces a deleted message with an ID-less system notice.
+        // A plain removal (its 50-message limit or navigation) is not deletion.
+        if (deletedNotices && removed.size === deletedNotices) {
+            for (const id of removed) room.deleted.add(id);
+        }
+        for (const id of room.deleted) room.pending.delete(id);
+        if (room.data && room.deleted.size) {
+            room.data.messages = room.data.messages.filter(entry => !room.deleted.has(entry.id));
+        }
+    }
+
+    function syncChatHistory() {
+        let alias;
+        try { alias = getRoomAlias(); } catch { return; }
+        const list = document.querySelector('app-chat-messages-room .messages-wrapper > .messages');
+        if (!alias || alias.length > 200 || !list) return;
+        const wrapper = list.parentElement;
+        if (chatHistoryRoom?.alias !== alias) {
+            // A route can change before Angular replaces the old room's DOM.
+            // Do not archive that outgoing transcript under the new room key.
+            const previousList = chatHistoryRoom?.list;
+            chatHistoryRoom?.archive?.remove();
+            chatHistoryRoom = { alias, pending: new Map(), deleted: new Set(), loaded: false, failed: false, previousList };
+        }
+        const room = chatHistoryRoom;
+        if (room.previousList === list) return;
+        if (room.list !== list) {
+            room.archive?.remove();
+            room.list = list;
+            room.archive = null;
+            lastFullNickname = null;
+            syncChatScroll(wrapper, list);
+        }
+        captureChatMessages(room); // Before name shortening and emote substitution.
+        if (!room.loading) {
+            room.loading = true;
+            loadChatHistory(room);
+        }
+        if (room.loaded) {
+            renderChatHistory(room);
+            flushChatHistory(room);
+        }
+        scheduleChatBottom();
+    }
+
+    function injectChatHistorySetting() {
+        const room = chatHistoryRoom;
+        const form = document.querySelector('app-chat-settings-room .settings form');
+        if (!room || !form?.firstElementChild) return;
+        let section = form.querySelector('.gowo-history-setting');
+        if (!section) {
+            section = document.createElement('div');
+            section.className = 'gowo-history-setting gowo-setting-row';
+            const title = document.createElement('p');
+            title.textContent = 'История чата этой комнаты';
+            const status = document.createElement('p');
+            status.className = 'gowo-history-status';
+            status.setAttribute('role', 'status');
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = 'Очистить сохранённую историю';
+            button.addEventListener('click', async () => {
+                const current = chatHistoryRoom;
+                if (!current?.loaded || current.clearing || !window.confirm(
+                    'Удалить сохранённую историю этой комнаты в этом браузере? Сообщения других участников не будут удалены.')) return;
+                current.clearing = true;
+                injectChatHistorySetting();
+                try {
+                    const visibleIds = [...current.list.querySelectorAll('.message[id]')].map(element => element.id);
+                    current.data = await historyTransaction(current.alias, stored => ({
+                        room: current.alias, messages: [], clearedAt: Date.now(),
+                        ignoredIds: [...new Set([...stored.ignoredIds, ...stored.messages.map(entry => entry.id), ...visibleIds])].slice(-2000)
+                    }));
+                    current.pending.clear();
+                    current.failed = false;
+                    renderChatHistory(current);
+                    chatHistoryChannel?.postMessage({ room: current.alias });
+                } catch { current.failed = true; }
+                current.clearing = false;
+                injectChatHistorySetting();
+            });
+            section.append(title, status, button);
+            form.firstElementChild.after(section);
+        }
+        const count = room.data?.messages.length || 0;
+        const text = room.failed ? 'Хранилище недоступно — история не сохраняется.' :
+            room.clearing ? 'Удаление…' : !room.loaded ? 'Загрузка истории…' :
+                `Сохранено: ${count} / ${chatHistoryLimit}. Только в этом браузере.`;
+        const status = section.querySelector('.gowo-history-status');
+        if (status.textContent !== text) status.textContent = text;
+        section.querySelector('button').disabled = !room.loaded || room.clearing || !count;
+    }
+
+    if (chatHistoryChannel) chatHistoryChannel.onmessage = event => {
+        if (event.data?.room === chatHistoryRoom?.alias) loadChatHistory(chatHistoryRoom);
+    };
+    window.addEventListener('focus', () => {
+        if (chatHistoryRoom?.loaded) loadChatHistory(chatHistoryRoom);
+    });
+    window.addEventListener('resize', scheduleChatBottom);
+
     function formatReplyAuthors() {
         document.querySelectorAll(
             '.message .text__reply__name, app-chat-messages-room .reply__content .name'
@@ -1591,6 +2047,24 @@
         }
         .header-message { width: auto!important; }
         .header-message p { font-weight: bold; margin-right: 5px; }
+
+        .gowo-history-heading { padding: 8px; color: #888; font-size: 11px; }
+        .gowo-history-message .user { display: block; min-width: 0; width: 100%; }
+        .gowo-history-message .text { display: block!important; overflow-wrap: anywhere; }
+        .gowo-history-message .header-message, .gowo-history-message .header-message p { display: inline; }
+        .gowo-history-message .text > .w-100 { display: inline; white-space: pre-wrap; }
+        .gowo-history-message.gowo-message-has-reply .text > .w-100 { display: block; }
+        .gowo-history-message .text__reply { border-left: 1px solid #777; padding-left: 8px; margin: 4px 0; font-size: 12px; }
+        .gowo-history-message .text__reply p { margin: 0; white-space: pre-wrap; }
+        .gowo-history-message img:not(.gowo-chat-emote) { display: block; max-width: 100%; height: auto; }
+        .gowo-history-setting { margin: 8px 0; }
+        .gowo-history-setting p { margin: 0 0 6px; }
+        .gowo-history-status { color: #999; }
+        .gowo-history-setting button {
+            width: 100%; padding: 8px; border: 1px solid #444; border-radius: 8px;
+            background: #111; color: #ddd; white-space: normal; cursor: pointer;
+        }
+        .gowo-history-setting button:disabled { opacity: .5; cursor: default; }
 
         .message[data-gowo-message-time]::after {
             content: attr(data-gowo-message-time);
@@ -1968,6 +2442,8 @@
         syncRoomToolbar();
         injectCallButtonSetting();
         injectEmotePicker();
+        syncChatHistory();
+        injectChatHistorySetting();
         formatReplyAuthors();
 
         remove([
@@ -1989,7 +2465,8 @@
         if (textarea) textarea.placeholder = 'Текст';
     }
 
-    const obs = new MutationObserver(() => {
+    const obs = new MutationObserver(records => {
+        captureChatDeletions(records);
         apply();
     });
 

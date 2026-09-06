@@ -7,6 +7,7 @@ A userscript for Tampermonkey and Safari Userscripts that enhances Gowo.io rooms
 - Streamlined room and chat layout
 - Consistent nickname colours and compact consecutive messages
 - Local receive/send time shown when hovering over a live chat message
+- Up to 1,000 locally saved messages per room, restored at the newest message after reload
 - Reply text always starts below its quoted message
 - First-name-only quoted authors, using their chat nickname colour
 - Simple, uncircled chat-header icons with the original controls and tooltips
@@ -53,6 +54,32 @@ The iframe fills the available pane height without startup scrolling.
 The original Gowo controls remain available until the embedded toolbar is ready,
 and stay visible for an unsupported player layout. No player-selection or
 refresh command is accepted from a different frame or origin.
+
+## Saved chat history
+
+Messages you see are saved automatically in this browser's IndexedDB, separately
+for each room (switching players does not create another history). The newest
+1,000 messages per room survive reloads, including names, quotes, 7TV tokens,
+safe links, and Gowo's Giphy GIFs. Matching native message IDs are not duplicated.
+Restored messages are a read-only local archive, not messages sent back to Gowo.
+Hover times are when this browser first saw the message, not server send times.
+
+Chat opens at the newest messages after reload and stays there as images and
+layout finish loading. Scrolling up stops that behaviour; reaching the bottom
+again resumes following new content.
+
+In room settings, **История чата этой комнаты → Очистить сохранённую историю**
+clears that room's saved copy after confirmation. It does not delete native live
+messages or anybody else's chat. Existing visible messages are not immediately
+re-saved after clearing; newly arriving messages start a fresh history.
+
+The archive is local to this browser profile and Gowo origin, not synced to
+GitHub, the cursor relay, or other devices. Clearing Gowo's site data also clears
+it; private browsing or unavailable/full storage can prevent persistence, which
+is reported in the settings panel. It cannot recover messages lost before this
+feature was installed or messages received while the room was closed. Observed
+native deletions are removed from the archive; deletions missed while offline
+cannot be synchronized retroactively.
 
 ## Install
 

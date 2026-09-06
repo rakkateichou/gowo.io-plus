@@ -650,7 +650,14 @@
         const sendButton = document.createElement('button');
         sendButton.type = 'button';
         sendButton.id = sendButtonId;
-        sendButton.textContent = 'Send';
+        const sendIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        sendIcon.setAttribute('viewBox', '0 0 24 24');
+        sendIcon.setAttribute('aria-hidden', 'true');
+        sendIcon.setAttribute('focusable', 'false');
+        const sendPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        sendPath.setAttribute('d', 'M22 2 9 15M22 2l-7 20-6-7-7-6Z');
+        sendIcon.append(sendPath);
+        sendButton.append(sendIcon);
         sendButton.title = 'Send message';
         sendButton.setAttribute('aria-label', 'Send message');
 
@@ -2379,12 +2386,22 @@
             box-shadow: 0 0 0 1px #fff;
         }
         #${sendButtonId} {
-            flex: 0 0 auto;
+            box-sizing: border-box;
+            width: var(--gowo-chat-control-height);
+            flex: 0 0 var(--gowo-chat-control-height);
             margin-left: 5px;
-            padding: 0 11px;
-            font-size: 11px!important;
-            font-weight: 700;
+            padding: 0;
             line-height: 1!important;
+        }
+        #${sendButtonId} svg {
+            width: 18px;
+            height: 18px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 1.8;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            pointer-events: none;
         }
         #${emotePickerId} {
             box-sizing: border-box;

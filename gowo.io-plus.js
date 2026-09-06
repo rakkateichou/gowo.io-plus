@@ -1466,12 +1466,19 @@
 
     // Local, bounded archives; never store or replay arbitrary message HTML.
     const chatHistoryLimit = 1000;
+    // Native IDs are opaque and can exceed 200 characters. Keep them intact:
+    // truncating would merge distinct messages and break clear/replay tracking.
+    const chatHistoryMessageIdLimit = 32768;
     const chatHistoryNodes = new WeakMap();
     let chatHistoryDatabase;
     let chatHistoryRoom = null;
     let chatScroll = null;
     const chatHistoryChannel = typeof window.BroadcastChannel === 'function' ?
         new window.BroadcastChannel('gowo-plus-chat-history-v1') : null;
+
+    function isHistoryMessageId(value) {
+        return typeof value === 'string' && value.length > 0 && value.length <= chatHistoryMessageIdLimit;
+    }
 
     function historyUrl(value, image = false) {
         try {
@@ -1541,7 +1548,7 @@
         const messages = new Map();
         if (value?.room === room && Array.isArray(value.messages)) {
             for (const entry of value.messages.slice(-chatHistoryLimit)) {
-                if (!entry || typeof entry.id !== 'string' || !entry.id || entry.id.length > 200 ||
+                if (!entry || !isHistoryMessageId(entry.id) ||
                     typeof entry.author !== 'string' || !entry.author.trim() ||
                     !Number.isFinite(entry.receivedAt) || entry.receivedAt < 0 || entry.receivedAt > 8640000000000000) continue;
                 messages.set(entry.id, {
@@ -1557,7 +1564,7 @@
             room, messages: [...messages.values()],
             clearedAt: value?.room === room && Number.isFinite(value.clearedAt) ? value.clearedAt : 0,
             ignoredIds: value?.room === room && Array.isArray(value.ignoredIds) ?
-                value.ignoredIds.filter(id => typeof id === 'string' && id.length <= 200).slice(-2000) : []
+                value.ignoredIds.filter(isHistoryMessageId).slice(-2000) : []
         };
     }
 
@@ -1765,10 +1772,15 @@
     function captureChatMessages(room) {
         for (const element of room.list.querySelectorAll('.message[id]')) {
             const body = element.querySelector('.text > .w-100');
-            if (!element.querySelector(':scope > .user') || !body || element.id.length > 200) continue;
+            if (!element.querySelector(':scope > .user') || !body || !isHistoryMessageId(element.id)) continue;
             const previous = chatHistoryNodes.get(element);
             const nickname = element.querySelector('.header-message > p, .text > p');
-            const author = previous?.id === element.id ? previous.author : nickname?.textContent.trim();
+            // Formatting shortens/removes the visible name; the native avatar
+            // still carries the full author even on consecutive messages.
+            const nativeAuthor = element.dataset.formatted === '1' ?
+                element.querySelector('app-picture img[alt]')?.getAttribute('alt')?.trim() ||
+                    nickname?.textContent.trim().replace(/:$/, '').trim() : nickname?.textContent.trim();
+            const author = previous?.id === element.id ? previous.author : nativeAuthor;
             if (!author) continue;
             const replyName = element.querySelector('.text__reply__name');
             const entry = {

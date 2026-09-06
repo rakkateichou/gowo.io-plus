@@ -12,6 +12,26 @@ const chat = content => `<app-chat-messages-room><div class="messages-wrapper"><
 const message = (id, text = 'Hello', author = 'Руслан Эммм', quote = '') => `<div class="message" id="${id}"><div class="user"><div class="text"><div class="header-message"><p>${author}</p></div>${quote}<div class="w-100">${text}</div></div><ul class="actions"><app-icon-undo></app-icon-undo></ul></div>`;
 const quote = '<div class="text__reply"><p class="text__reply__name">Друг Другов</p><p class="text__reply__text">Quoted :pog:</p></div>';
 
+// Same ID length/shape and nested markup as the reported Gowo message, but
+// synthetic IDs and profile details: do not publish a user's opaque identifiers.
+const nativeId = suffix => `${'a'.repeat(32)}:${'b'.repeat(191)}${suffix}`;
+const nativeMessage = (id, formatted = false, omitNickname = false) => `
+  <div _ngcontent-ng-c629038734="" class="message" id="${id}" ${formatted ? 'data-formatted="1" data-gowo-message-time="18:11:23"' : ''}>
+    <div _ngcontent-ng-c629038734="" class="user d-flex justify-content-between align-items-center w-100">
+      <div _ngcontent-ng-c629038734="" class="d-flex w-100">
+        <a target="_blank" href="/user/id-example"><div class="position-relative">
+          <app-picture><picture><img alt="Гость Пример" title="Гость Пример" src="/assets/images/photo_none_man.png"></picture></app-picture>
+        </div></a>
+        <div _ngcontent-ng-c629038734="" class="text ms-2">
+          <div class="header-message">${omitNickname ? '' : `<p class="mb-0">${formatted ? 'Гость:' : 'Гость Пример'}</p>`}
+            <ul class="list-unstyled actions"><li><app-icon-undo></app-icon-undo></li></ul>
+          </div>
+          <div class="w-100 gowo-emote-only">${formatted ? Array.from({ length: 3 }, () => '<img class="gowo-chat-emote" src="https://cdn.7tv.app/emote/01F6NPP6YG00013ACMMJP3W06V/2x.webp" alt="peepoLove" title=":peepolove:">').join(' ') : ':peepolove: :peepolove: :peepolove:'}</div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
 function harness({ database = new IDBFactory(), room = 'room-a', content = '', html, clock = { now: 1800000000000 } } = {}) {
     const dom = parseHTML(`<!doctype html><html><head></head><body>${html ?? chat(content)}</body></html>`);
     const { document } = dom;
@@ -139,6 +159,60 @@ test('reload restores room messages, full-name colours, quotes, emotes and first
     assert.equal(saved.dataset.gowoMessageTime, new Date(first.clock.now).toLocaleString());
     assert.equal(saved.querySelector('.actions'), null); // An archive never invents a live reply/delete handler.
     assert.equal((await stored(first.database)).messages.length, 1);
+});
+
+test('real-shaped 225-character IDs save both messages intact and survive reload at the bottom', async () => {
+    assert.equal(nativeId('1').length, 225);
+    assert.equal(nativeId('1').slice(0, 200), nativeId('2').slice(0, 200));
+    const h = harness({ content: nativeMessage(nativeId('1')) + nativeMessage(nativeId('2')) });
+    await h.settle();
+    const data = await stored(h.database);
+    assert.deepEqual(data?.messages.map(entry => entry.id), [nativeId('1'), nativeId('2')]);
+    assert.match(h.document.querySelector('.gowo-history-status').textContent, /Сохранено: 2 \/ 1000/);
+    assert.equal(data.messages[0].parts[0].text, ':peepolove: :peepolove: :peepolove:');
+    const reload = harness({ database: h.database });
+    reload.metrics.extra = 150;
+    await reload.settle();
+    assert.equal(reload.document.querySelectorAll('.gowo-history-message').length, 2);
+    assert.equal(reload.document.querySelectorAll('.gowo-history-message .gowo-chat-emote').length, 6);
+    const wrapper = reload.document.querySelector('.messages-wrapper');
+    assert.equal(wrapper.scrollTop, wrapper.scrollHeight - wrapper.clientHeight);
+});
+
+test('already-formatted native messages recover full author names from avatar labels', async () => {
+    const h = harness({ content: nativeMessage(nativeId('1'), true) + nativeMessage(nativeId('2'), true, true) });
+    await h.settle();
+    assert.deepEqual((await stored(h.database))?.messages.map(entry => entry.author), ['Гость Пример', 'Гость Пример']);
+    const reload = harness({ database: h.database });
+    await reload.settle();
+    assert.deepEqual([...reload.document.querySelectorAll('.gowo-history-message .header-message p')].map(el => el.textContent), ['Гость:', 'Гость:']);
+});
+
+test('long IDs are deduplicated without truncation and remain cleared after native replay', async () => {
+    const first = harness({ content: nativeMessage(nativeId('1')) + nativeMessage(nativeId('2')) });
+    await first.settle();
+    const replay = harness({ database: first.database, content: nativeMessage(nativeId('2')) });
+    await replay.settle();
+    assert.equal(replay.document.querySelectorAll('.message').length, 2);
+    assert.deepEqual([...replay.document.querySelectorAll('.gowo-history-message')].map(el => el.dataset.gowoHistoryId), [nativeId('1')]);
+    replay.clock.now += 100;
+    replay.document.querySelector('.gowo-history-setting button').click();
+    await replay.settle();
+    assert.equal((await stored(first.database)).messages.length, 0);
+    const cleared = harness({ database: first.database, content: nativeMessage(nativeId('1')) + nativeMessage(nativeId('2')), clock: { now: replay.clock.now + 100 } });
+    await cleared.settle();
+    assert.equal((await stored(first.database)).messages.length, 0);
+    assert.deepEqual((await stored(first.database)).ignoredIds.sort(), [nativeId('1'), nativeId('2')]);
+});
+
+test('opaque IDs can be longer than the reported example while oversized records remain bounded', async () => {
+    const validId = 'c'.repeat(4096);
+    const h = harness({ content: message(validId) + message('d'.repeat(32769)) });
+    await h.settle();
+    assert.deepEqual((await stored(h.database))?.messages.map(entry => entry.id), [validId]);
+    const reload = harness({ database: h.database });
+    await reload.settle();
+    assert.equal(reload.document.querySelector('.gowo-history-message')?.dataset.gowoHistoryId, validId);
 });
 
 test('deduplication uses message IDs, not identical text; native replay keeps its original timestamp', async () => {

@@ -2015,9 +2015,15 @@
         .videoplayer[data-gowo-toolbar-ready="true"] .danger-message { display: none!important; }
         *::-webkit-scrollbar { width: 0px!important; }
 
+        /* Constrain the columns before the chat controls acquire their styles.
+           Safari can retain their initial intrinsic overflow until a resize. */
+        .left-place, .right-place { min-width: 0; box-sizing: border-box; }
         .left-place { width: 85%!important; }
         .right-place { width: 15%!important; opacity: 0.5; }
 
+        .right-place .chat {
+            box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0;
+        }
         .chat { border-left: 0px!important; padding: 5px!important; }
         .chat-header { justify-content: center!important; }
         .chat-header .actions > img[alt="settings room"],
@@ -2213,7 +2219,8 @@
         app-chat-messages-room .chat-footer > .d-flex > .textarea {
             min-width: 0;
             width: auto!important;
-            flex: 1 1 auto;
+            /* Use the space left after buttons, not the textarea's intrinsic width. */
+            flex: 1 1 0%;
         }
         app-chat-messages-room .chat-footer textarea {
             box-sizing: border-box!important;

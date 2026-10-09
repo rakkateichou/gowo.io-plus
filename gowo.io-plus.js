@@ -754,6 +754,23 @@
         }
     }
 
+    function focusEmoteOption(grid, option) {
+        if (!option) return;
+        option.focus({ preventScroll: true });
+        // Scroll only the emote grid, never the room or video pane.
+        if (option.offsetTop < grid.scrollTop) grid.scrollTop = option.offsetTop;
+        else if (option.offsetTop + option.offsetHeight > grid.scrollTop + grid.clientHeight) {
+            grid.scrollTop = option.offsetTop + option.offsetHeight - grid.clientHeight;
+        }
+    }
+
+    function hasSelectedText() {
+        const active = document.activeElement;
+        if (isEditableElement(active) && Number.isInteger(active.selectionStart) &&
+            active.selectionStart !== active.selectionEnd) return true;
+        return Boolean(window.getSelection?.()?.toString());
+    }
+
     let emotePickerResizeObserver = null;
 
     function injectEmotePicker() {
@@ -880,6 +897,45 @@
                 insertEmoteAtCaret(input, option.dataset.emoteToken);
             }
         });
+        picker.addEventListener('keydown', event => {
+            const option = event.target.closest?.('.gowo-emote-option');
+            if (!option || event.ctrlKey || event.metaKey || event.altKey) return;
+            const options = [...grid.querySelectorAll('.gowo-emote-option')];
+            const index = options.indexOf(option);
+            const columns = window.getComputedStyle(grid).gridTemplateColumns
+                .split(' ').filter(Boolean).length || 4;
+            const moves = {
+                ArrowLeft: index - 1,
+                ArrowRight: index + 1,
+                ArrowUp: index - columns,
+                ArrowDown: index + columns,
+                Home: 0,
+                End: options.length - 1
+            };
+            if (event.key in moves) {
+                event.preventDefault();
+                event.stopPropagation();
+                focusEmoteOption(grid, options[
+                    Math.max(0, Math.min(options.length - 1, moves[event.key]))
+                ]);
+            } else if (event.key === 'Enter' || event.key === ' ') {
+                // Handle Enter here so the button's synthetic click cannot insert twice.
+                event.preventDefault();
+                event.stopPropagation();
+                if (event.shiftKey) {
+                    insertEmoteAtCaret(input, option.dataset.emoteToken);
+                    focusEmoteOption(grid, option);
+                } else {
+                    closeEmotePicker();
+                    insertEmoteAtCaret(input, option.dataset.emoteToken);
+                }
+            } else if (event.key === 'Escape' || event.key === 'Tab') {
+                event.preventDefault();
+                event.stopPropagation();
+                closeEmotePicker();
+                input.focus({ preventScroll: true });
+            }
+        });
         picker.addEventListener('wheel', event => {
             event.stopPropagation();
         }, { passive: true });
@@ -916,6 +972,38 @@
     document.addEventListener('keydown', event => {
         if (event.key === 'Escape') closeEmotePicker();
     });
+
+    // Ctrl+C focuses chat (when nothing is selected to copy); Ctrl+E toggles emotes.
+    // Match physical keys so the shortcuts also work on non-Latin layouts.
+    document.addEventListener('keydown', event => {
+        if (!event.ctrlKey || event.metaKey || event.altKey || event.shiftKey ||
+            event.isComposing || (event.code !== 'KeyC' && event.code !== 'KeyE')) return;
+        const input = document.querySelector(
+            'app-chat-messages-room .form-message textarea'
+        );
+        if (!input || input.disabled) return;
+        if (event.code === 'KeyC') {
+            if (hasSelectedText() || document.activeElement === input) return;
+            event.preventDefault();
+            if (cursorHolding) stopCursorDrawing();
+            focusChatComposer();
+            return;
+        }
+        event.preventDefault();
+        if (event.repeat) return;
+        const picker = document.getElementById(emotePickerId);
+        const toggle = document.getElementById(emoteToggleId);
+        if (!picker || !toggle) return;
+        if (cursorHolding) stopCursorDrawing();
+        const opening = picker.hidden;
+        toggle.click();
+        if (opening) {
+            focusEmoteOption(
+                picker.querySelector('.gowo-emote-grid'),
+                picker.querySelector('.gowo-emote-option')
+            );
+        }
+    }, true);
 
     const hideCallButtonPreferenceKey = 'gowo-plus-hide-call-button';
     const hideCallButtonToggleId = 'gowo-plus-hide-call-button-toggle';
@@ -2645,7 +2733,12 @@
             font: inherit;
             line-height: 1!important;
         }
-        .gowo-emote-option:hover {
+        .gowo-emote-option:focus-visible {
+            outline: 1px solid #888;
+            outline-offset: -1px;
+        }
+        .gowo-emote-option:hover,
+        .gowo-emote-option:focus-visible {
             border-color: #444;
             background: #242424;
             color: #fff;

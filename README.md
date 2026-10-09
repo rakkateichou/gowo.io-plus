@@ -27,6 +27,13 @@ emotes. Use **↑/↓** to choose, **Enter** or **Tab** to insert, or click a pr
 open; press Enter again to send the completed message. Matching ignores case
 and also finds parts of names, such as `:run` for `:peeporun:`.
 
+Press `Ctrl+E` to open the picker from the keyboard (press it again to close).
+Move between emotes with the arrow keys, **Home** and **End**; **Enter** or
+**Space** inserts the emote and closes the picker, **Shift+Enter** inserts it and
+keeps the picker open, and **Escape** or **Tab** returns to the chat box.
+`Ctrl+C` jumps to the chat box when no text is selected; with a selection it
+copies as usual.
+
 The token stays ordinary Gowo.io chat text and is rendered as an emote for
 people running Gowo.io+. The fixed 48-emote catalogue matches the one in the
 [JellyWatchParty fork](https://github.com/rakkateichou/JellyWatchParty).

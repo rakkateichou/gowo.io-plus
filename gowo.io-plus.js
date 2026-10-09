@@ -882,8 +882,15 @@
             const willOpen = picker.hidden;
             picker.hidden = !willOpen;
             toggle.setAttribute('aria-expanded', String(willOpen));
-            if (willOpen) scheduleLabelFit();
-            input.focus({ preventScroll: true });
+            if (!willOpen) {
+                input.focus({ preventScroll: true });
+                return;
+            }
+            scheduleLabelFit();
+            // Focus the grid so arrows work at once, without a keyboard outline
+            // until one is pressed. Typing returns to the chat box.
+            picker.classList.add('gowo-emote-pointer');
+            focusEmoteOption(grid, grid.querySelector('.gowo-emote-option'));
         });
         picker.addEventListener('mousedown', event => {
             if (event.target.closest('.gowo-emote-option')) {
@@ -895,6 +902,8 @@
             const option = event.target.closest('.gowo-emote-option');
             if (option?.dataset.emoteToken) {
                 insertEmoteAtCaret(input, option.dataset.emoteToken);
+                // Stay in the grid so the arrows keep working after a click.
+                option.focus({ preventScroll: true });
             }
         });
         // The pointer takes over from the keyboard highlight; arrows continue
@@ -944,6 +953,9 @@
                 event.preventDefault();
                 event.stopPropagation();
                 closeEmotePicker();
+                input.focus({ preventScroll: true });
+            } else if (event.key.length === 1 || event.key === 'Backspace' || event.key === 'Delete') {
+                // Moving focus during keydown lets the key land in the chat box.
                 input.focus({ preventScroll: true });
             }
         });

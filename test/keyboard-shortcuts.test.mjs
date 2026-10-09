@@ -123,3 +123,28 @@ test('hovering hands the highlight to the pointer until the next arrow key', () 
     assert.equal(h.picker.classList.contains('gowo-emote-pointer'), false);
     assert.equal(h.document.activeElement, h.options[3]);
 });
+
+test('opening with the mouse focuses the grid quietly; arrows work and typing returns to chat', () => {
+    const h = harness();
+    h.input.focus();
+    h.document.getElementById('gowo-emote-toggle').click();
+    assert.equal(h.picker.hidden, false);
+    assert.equal(h.document.activeElement, h.options[0]);
+    assert.ok(h.picker.classList.contains('gowo-emote-pointer'));
+    h.key(h.document.activeElement, { key: 'ArrowRight' });
+    assert.equal(h.document.activeElement, h.options[1]);
+    assert.equal(h.picker.classList.contains('gowo-emote-pointer'), false);
+    assert.equal(h.key(h.document.activeElement, { key: 'a' }).defaultPrevented, false);
+    assert.equal(h.document.activeElement, h.input);
+    assert.equal(h.picker.hidden, false);
+});
+
+test('clicking an emote inserts it and keeps arrow navigation in the grid', () => {
+    const h = harness();
+    h.document.getElementById('gowo-emote-toggle').click();
+    h.options[2].click();
+    assert.ok(h.input.value.includes(h.options[2].dataset.emoteToken));
+    assert.equal(h.document.activeElement, h.options[2]);
+    h.key(h.document.activeElement, { key: 'ArrowLeft' });
+    assert.equal(h.document.activeElement, h.options[1]);
+});

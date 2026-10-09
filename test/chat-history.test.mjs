@@ -507,10 +507,16 @@ test('restored messages reply through a Gowo-style bar and queue the quote for t
     assert.equal(queued.at(-1), '');
 });
 
-test('the typing notice is shortened to "<name> печатает..."', async () => {
+test('the typing notice reads "<name> печатает..." and keeps it while sliding shut', async () => {
     const h = harness({ html: composerChat('') });
     await h.settle();
-    assert.equal(h.document.querySelector('.writing-message').textContent, 'Полина Гончарова печатает...');
+    const notice = h.document.querySelector('.writing-message');
+    assert.equal(notice.dataset.gowoTyping, 'Полина Гончарова печатает...');
+    assert.ok(notice.classList.contains('gowo-typing-active'));
+    notice.textContent = '';
+    h.apply();
+    assert.equal(notice.classList.contains('gowo-typing-active'), false);
+    assert.equal(notice.dataset.gowoTyping, 'Полина Гончарова печатает...');
 });
 
 test('the page hook adds a queued quote to the next socket message only', () => {

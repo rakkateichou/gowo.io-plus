@@ -141,13 +141,15 @@ test('composer uses its full width without unconditional native GIF padding', ()
     assert.match(css, /:has\(#search-gifts-button:not\(\[hidden\]\)\) textarea \{\s*padding-right: 32px!important/);
 });
 
-test('typing notice stays on one line and only takes space while shown', () => {
+test('typing notice slides open on one line and leaves only a small gap when shut', () => {
     const { document } = harness();
     const css = document.querySelector('style').textContent;
     const rule = css.match(/\.form-message \.writing-message \{([^}]+)\}/)[1];
     assert.match(rule, /position: static!important/);
-    assert.match(rule, /max-height: 24px!important/);
+    assert.match(rule, /max-height: 0!important/);
     assert.match(rule, /white-space: nowrap!important/);
     assert.match(rule, /text-overflow: ellipsis!important/);
-    assert.match(css, /\.messages-wrapper \{\s*padding-bottom: 8px!important/);
+    assert.match(css, /\.writing-message\.gowo-typing-active \{\s*max-height: 16px!important/);
+    assert.match(css, /transition: max-height 180ms ease/);
+    assert.match(css, /\.messages-wrapper \{\s*padding-bottom: 4px!important/);
 });

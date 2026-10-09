@@ -2375,13 +2375,22 @@
     });
     window.addEventListener('resize', scheduleChatBottom);
 
-    function shortenTypingNotice() {
+    // Show "<name> печатает..." through a pseudo-element that keeps the last
+    // text while the notice slides out after Gowo empties it.
+    function syncTypingNotice() {
         const notice = document.querySelector('app-chat-messages-room .writing-message');
         if (!notice) return;
-        const walker = document.createTreeWalker(notice, 4);
-        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-            const short = node.nodeValue.replace(/(печата(?:ет|ют))(?!\.\.\.$)[\s\S]*$/, '$1...');
-            if (short !== node.nodeValue) node.nodeValue = short;
+        const text = notice.textContent.replace(/\s+/g, ' ').trim();
+        if (text) {
+            const short = text.replace(/(печата(?:ет|ют))[\s\S]*$/, '$1...');
+            if (notice.dataset.gowoTyping !== short) notice.dataset.gowoTyping = short;
+            if (!notice.classList.contains('gowo-typing-active')) {
+                // Commit the collapsed style first so a fresh node also slides in.
+                void notice.offsetHeight;
+                notice.classList.add('gowo-typing-active');
+            }
+        } else {
+            notice.classList.remove('gowo-typing-active');
         }
     }
 
@@ -2712,21 +2721,39 @@
         }
         /* Gowo floats the typing notice 24px above the form and pads the message
            list by 24px to make room for it, leaving a gap when nobody types.
-           Keep it in flow instead, on one line, so it only takes space while
-           shown; the chat's bottom-follow scroll keeps the last message visible. */
+           Keep it in flow instead and slide it open and shut; the chat's
+           bottom-follow scroll keeps the last message in view as it resizes. */
         app-chat-messages-room .messages-wrapper {
-            padding-bottom: 8px!important;
+            padding-bottom: 4px!important;
         }
         app-chat-messages-room .form-message .writing-message {
             position: static!important;
             box-sizing: border-box!important;
-            max-height: 24px!important;
+            max-height: 0!important;
+            margin: 0!important;
             padding: 0 8px!important;
             background: transparent!important;
-            line-height: 24px!important;
+            opacity: 0;
+            /* Gowo's own text is drawn by ::before from data-gowo-typing. */
+            font-size: 0!important;
+            line-height: 16px!important;
             overflow: hidden!important;
             text-overflow: ellipsis!important;
             white-space: nowrap!important;
+        }
+        app-chat-messages-room .form-message .writing-message::before {
+            content: attr(data-gowo-typing);
+            font-size: 12px;
+        }
+        app-chat-messages-room .form-message .writing-message.gowo-typing-active {
+            max-height: 16px!important;
+            margin: 0 0 3px!important;
+            opacity: 1;
+        }
+        @media (prefers-reduced-motion: no-preference) {
+            app-chat-messages-room .form-message .writing-message {
+                transition: max-height 180ms ease, margin 180ms ease, opacity 180ms ease;
+            }
         }
         app-chat-messages-room .chat-footer {
             --gowo-chat-control-height: 36px;
@@ -3057,7 +3084,7 @@
         syncChatHistory();
         injectChatHistorySetting();
         formatReplyAuthors();
-        shortenTypingNotice();
+        syncTypingNotice();
 
         remove([
             '.wrap-head-room',

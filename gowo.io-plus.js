@@ -2524,8 +2524,11 @@
            narrow chat pane wrapped onto a second line that covered the input. */
         app-chat-messages-room .form-message .writing-message {
             box-sizing: border-box!important;
-            height: 24px!important;
+            /* A cap, not a fixed height, so an empty notice takes no space. */
+            max-height: 24px!important;
             padding: 0 8px!important;
+            /* Match the black page instead of Gowo's grey strip. */
+            background: #000!important;
             line-height: 24px!important;
             overflow: hidden!important;
             text-overflow: ellipsis!important;

@@ -111,3 +111,15 @@ test('Shift+Enter inserts and keeps the picker open; Escape returns to the input
     assert.equal(h.picker.hidden, true);
     assert.equal(h.document.activeElement, h.input);
 });
+
+test('hovering hands the highlight to the pointer until the next arrow key', () => {
+    const h = harness();
+    h.key(h.document.body, { ctrlKey: true, code: 'KeyE' });
+    const move = new h.context.Event('mousemove', { bubbles: true });
+    h.options[2].dispatchEvent(move);
+    assert.ok(h.picker.classList.contains('gowo-emote-pointer'));
+    assert.equal(h.document.activeElement, h.options[2]);
+    h.key(h.document.activeElement, { key: 'ArrowRight' });
+    assert.equal(h.picker.classList.contains('gowo-emote-pointer'), false);
+    assert.equal(h.document.activeElement, h.options[3]);
+});

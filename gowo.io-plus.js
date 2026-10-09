@@ -897,9 +897,20 @@
                 insertEmoteAtCaret(input, option.dataset.emoteToken);
             }
         });
+        // The pointer takes over from the keyboard highlight; arrows continue
+        // from the hovered emote and bring the highlight back.
+        picker.addEventListener('mousemove', event => {
+            const option = event.target.closest?.('.gowo-emote-option');
+            picker.classList.add('gowo-emote-pointer');
+            if (option && picker.contains(document.activeElement) &&
+                document.activeElement !== option) {
+                option.focus({ preventScroll: true });
+            }
+        });
         picker.addEventListener('keydown', event => {
             const option = event.target.closest?.('.gowo-emote-option');
             if (!option || event.ctrlKey || event.metaKey || event.altKey) return;
+            picker.classList.remove('gowo-emote-pointer');
             const options = [...grid.querySelectorAll('.gowo-emote-option')];
             const index = options.indexOf(option);
             const columns = window.getComputedStyle(grid).gridTemplateColumns
@@ -998,6 +1009,7 @@
         const opening = picker.hidden;
         toggle.click();
         if (opening) {
+            picker.classList.remove('gowo-emote-pointer');
             focusEmoteOption(
                 picker.querySelector('.gowo-emote-grid'),
                 picker.querySelector('.gowo-emote-option')
@@ -2751,12 +2763,15 @@
             font: inherit;
             line-height: 1!important;
         }
-        .gowo-emote-option:focus-visible {
+        #${emotePickerId}:not(.gowo-emote-pointer) .gowo-emote-option:focus-visible {
             outline: 1px solid #888;
             outline-offset: -1px;
         }
+        #${emotePickerId}.gowo-emote-pointer .gowo-emote-option:focus-visible {
+            outline: none;
+        }
         .gowo-emote-option:hover,
-        .gowo-emote-option:focus-visible {
+        #${emotePickerId}:not(.gowo-emote-pointer) .gowo-emote-option:focus-visible {
             border-color: #444;
             background: #242424;
             color: #fff;

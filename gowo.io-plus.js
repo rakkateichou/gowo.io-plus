@@ -2476,6 +2476,11 @@
             // querySelectorAll includes saved and live messages in visual order,
             // crossing the archive wrapper. System notices start a new group.
             for (const message of chat.querySelectorAll('.message')) {
+                // System notices lose their only line with .text-muted. Hide the
+                // empty shell and let it neither split nor start a sender group.
+                const empty = !message.querySelector('.user, img') && !message.textContent.trim();
+                message.classList.toggle('gowo-empty-message', empty);
+                if (empty) continue;
                 const record = messageAuthors.get(message);
                 const author = record?.id === message.id ? record.author : null;
                 const consecutive = Boolean(author && author === previousAuthor);
@@ -2551,6 +2556,18 @@
             background: #000;
         }
         .message .text { margin-left: 0px!important; }
+        .message.gowo-empty-message { display: none!important; }
+        /* Gowo's global stylesheet makes .text a wrapping flex row beside the
+           avatar column, so a long message wrapped under the name but indented
+           past the crown. Flow crown, name and text inline like restored ones. */
+        app-chat-messages-room .message .user > .d-flex { display: block!important; }
+        app-chat-messages-room .message .user > .d-flex > a { display: inline; }
+        app-chat-messages-room .message .user > .d-flex > a > .position-relative { display: inline-block; }
+        app-chat-messages-room .message .text,
+        app-chat-messages-room .message .text > .header-message,
+        app-chat-messages-room .message .text > .header-message > p,
+        app-chat-messages-room .message .text > .w-100 { display: inline!important; }
+        app-chat-messages-room .message.gowo-message-has-reply .text > .w-100 { display: block!important; }
         .message .text div { width: auto!important; }
         .message.gowo-message-has-reply .text {
             flex-direction: column!important;

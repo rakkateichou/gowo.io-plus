@@ -547,3 +547,12 @@ test('the page hook adds a queued quote to the next socket message only', () => 
     assert.equal(JSON.parse(sent[3].slice(2))[1].reply, undefined);
     assert.equal(sentEvents, 1);
 });
+
+test('an emptied system notice between two messages neither shows nor splits the sender group', async () => {
+    const system = '<div class="message" id="s1"><div><div class="text text-muted">Руслан Эммм присоединился</div></div></div>';
+    const h = harness({ content: message('m1', 'агаа') + system + message('m2', 'интересно') });
+    await h.settle();
+    assert.ok(h.document.getElementById('s1').classList.contains('gowo-empty-message'));
+    assert.ok(h.document.getElementById('m2').classList.contains('gowo-consecutive-message'));
+    assert.equal(h.document.getElementById('m1').classList.contains('gowo-consecutive-message'), false);
+});

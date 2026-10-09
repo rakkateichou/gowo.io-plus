@@ -556,3 +556,20 @@ test('an emptied system notice between two messages neither shows nor splits the
     assert.ok(h.document.getElementById('m2').classList.contains('gowo-consecutive-message'));
     assert.equal(h.document.getElementById('m1').classList.contains('gowo-consecutive-message'), false);
 });
+
+test('owner and admin crowns are saved and drawn on restored messages, hidden when grouped', async () => {
+    const crowned = (id, text, crown) => message(id, text, 'Полина Гончарова')
+        .replace('<div class="text">', `<app-icon-crown${crown === 'admin' ? ' class="white-crown"' : ''}></app-icon-crown><div class="text">`);
+    const first = harness({ content: crowned('m1', 'согласна', 'owner') + crowned('m2', 'ну она гг', 'owner') +
+        message('m3', 'а вдруг)', 'Руслан Эммм') + crowned('m4', 'hi', 'admin') });
+    await first.settle();
+    const data = await stored(first.database);
+    assert.deepEqual(data.messages.map(entry => entry.crown), ['owner', 'owner', undefined, 'admin']);
+    const reload = harness({ database: first.database });
+    await reload.settle();
+    const restored = id => reload.document.querySelector(`[data-gowo-history-id="${id}"]`);
+    assert.equal(restored('m1').querySelector('.gowo-history-crown path').getAttribute('fill'), '#FBC658');
+    assert.ok(restored('m2').classList.contains('gowo-consecutive-message'));
+    assert.equal(restored('m3').querySelector('.gowo-history-crown'), null);
+    assert.equal(restored('m4').querySelector('.gowo-history-crown path').getAttribute('fill'), '#fff');
+});

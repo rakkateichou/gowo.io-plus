@@ -1869,6 +1869,7 @@
                     !Number.isFinite(entry.receivedAt) || entry.receivedAt < 0 || entry.receivedAt > 8640000000000000) continue;
                 messages.set(entry.id, {
                     id: entry.id, author: entry.author.slice(0, 200), receivedAt: entry.receivedAt,
+                    ...(['owner', 'admin'].includes(entry.crown) ? { crown: entry.crown } : {}),
                     parts: cleanHistoryParts(entry.parts),
                     reply: entry.reply && typeof entry.reply.author === 'string' ? {
                         author: entry.reply.author.slice(0, 200), parts: cleanHistoryParts(entry.reply.parts)
@@ -2060,6 +2061,19 @@
         'M9 22H15C20 22 22 20 22 15V9C22 4 20 2 15 2L9 2C4 2 2 4 2 9L2 15C2 20 4 22 9 22Z'
     ], '0 0 24 24', '#fff');
 
+    // Gowo's crown: gold for the room owner, white for admins.
+    function historyCrownIcon(kind) {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('class', 'gowo-history-crown');
+        svg.setAttribute('viewBox', '0 0 24 20');
+        svg.setAttribute('aria-hidden', 'true');
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M11.944 4.97667C10.5754 4.97667 9.45568 3.85692 9.45568 2.48834C9.45568 1.08865 10.5754 0 11.944 0C13.3126 0 14.4323 1.08865 14.4323 2.48834C14.4323 3.85692 13.3126 4.97667 11.944 4.97667ZM2.02177 3.95023C3.11042 3.95023 3.98134 4.85226 3.98134 5.9409C3.98134 7.06065 3.11042 7.93157 2.02177 7.93157C0.902022 7.93157 0 7.06065 0 5.9409C0 4.85226 0.902022 3.95023 2.02177 3.95023ZM21.9285 3.95023C23.0171 3.95023 23.888 4.85226 23.888 5.9409C23.888 7.06065 23.0171 7.93157 21.9285 7.93157C20.8087 7.93157 19.9067 7.06065 19.9067 5.9409C19.9067 4.85226 20.8087 3.95023 21.9285 3.95023ZM4.19907 17.6983L2.55054 8.67807C3.04821 8.58476 3.51477 8.30482 3.88803 7.99378C4.91446 8.92691 6.22084 9.82893 7.46501 9.82893C8.95801 9.82893 10.1711 7.52722 11.0109 5.59876C11.2908 5.69207 11.633 5.78538 11.944 5.78538C12.2551 5.78538 12.5972 5.69207 12.8771 5.59876C13.717 7.52722 14.93 9.82893 16.423 9.82893C17.6672 9.82893 18.9736 8.92691 20 7.99378C20.3733 8.30482 20.8398 8.58476 21.3375 8.67807L19.689 17.6983H4.19907ZM3.85692 18.4759H20.0311V20H3.85692V18.4759Z');
+        path.setAttribute('fill', kind === 'admin' ? '#fff' : '#FBC658');
+        svg.append(path);
+        return svg;
+    }
+
     function clearHistoryReply(notify = true) {
         const bar = document.getElementById(historyReplyBarId);
         if (!bar) return;
@@ -2143,6 +2157,7 @@
             name.textContent = entry.author.split(/\s+/)[0] + ':';
             name.style.color = stringToColor(entry.author);
             header.append(name);
+            if (entry.crown) text.append(historyCrownIcon(entry.crown));
             text.append(header);
             if (entry.reply) {
                 message.classList.add('gowo-message-has-reply');
@@ -2239,9 +2254,11 @@
             const author = previous?.id === element.id ? previous.author : nativeAuthor;
             if (!author) continue;
             const replyName = element.querySelector('.text__reply__name');
+            const crown = element.querySelector('app-icon-crown');
             const entry = {
                 id: element.id, author: author.slice(0, 200),
                 receivedAt: previous?.id === element.id ? previous.receivedAt : Date.now(),
+                ...(crown ? { crown: crown.classList.contains('white-crown') ? 'admin' : 'owner' } : {}),
                 parts: historyParts(body),
                 reply: replyName ? {
                     author: (replyAuthorNames.get(replyName)?.fullName || replyName.textContent.trim()).slice(0, 200),
@@ -2578,7 +2595,12 @@
         }
         /* Retain the nodes so a new group leader can show its name and crown. */
         .message.gowo-consecutive-message .header-message > p,
-        .message.gowo-consecutive-message app-icon-crown { display: none!important; }
+        .message.gowo-consecutive-message app-icon-crown,
+        .message.gowo-consecutive-message .gowo-history-crown { display: none!important; }
+        .gowo-history-crown {
+            width: 18px; height: 15px; margin-right: 4px;
+            vertical-align: -1px;
+        }
         .header-message { width: auto!important; }
         .header-message p { font-weight: bold; margin-right: 5px; }
 

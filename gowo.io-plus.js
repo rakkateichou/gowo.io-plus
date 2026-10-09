@@ -2565,8 +2565,11 @@
         app-chat-messages-room .message .user > .d-flex > a > .position-relative { display: inline-block; }
         app-chat-messages-room .message .text,
         app-chat-messages-room .message .text > .header-message,
-        app-chat-messages-room .message .text > .header-message > p,
         app-chat-messages-room .message .text > .w-100 { display: inline!important; }
+        /* Never override the hidden name on a grouped follow-up message. */
+        app-chat-messages-room .message:not(.gowo-consecutive-message) .text > .header-message > p {
+            display: inline!important;
+        }
         app-chat-messages-room .message.gowo-message-has-reply .text > .w-100 { display: block!important; }
         .message .text div { width: auto!important; }
         .message.gowo-message-has-reply .text {

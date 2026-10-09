@@ -154,3 +154,16 @@ test('typing notice slides open on one line and leaves only a small gap when shu
     assert.match(css, /\.messages-wrapper \{\s*padding-top: 0!important;\s*padding-bottom: 4px!important/);
     assert.match(css, /\.chat:has\(app-chat-messages-room\) \.chat-header \{\s*margin-bottom: 0!important/);
 });
+
+test('inline message layout never re-shows the name hidden on grouped messages', () => {
+    const { document } = harness();
+    const css = document.querySelector('style').textContent;
+    for (const [, selectors, body] of css.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+        if (!/display:\s*inline/.test(body)) continue;
+        for (const selector of selectors.split(',')) {
+            if (/\.header-message > p\s*$/.test(selector.trim())) {
+                assert.match(selector, /:not\(\.gowo-consecutive-message\)/);
+            }
+        }
+    }
+});

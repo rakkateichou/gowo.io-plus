@@ -2520,20 +2520,23 @@
         app-chat-messages-room .form-message {
             position: relative!important;
         }
-        /* Gowo pins the typing notice 24px above the form; a long name in the
-           narrow chat pane wrapped onto a second line that covered the input. */
+        /* Gowo floats the typing notice 24px above the form and pads the message
+           list by 24px to make room for it, leaving a gap when nobody types.
+           Keep it in flow instead, on one line, so it only takes space while
+           shown; the chat's bottom-follow scroll keeps the last message visible. */
+        app-chat-messages-room .messages-wrapper {
+            padding-bottom: 8px!important;
+        }
         app-chat-messages-room .form-message .writing-message {
+            position: static!important;
             box-sizing: border-box!important;
-            /* A cap, not a fixed height, so an empty notice takes no space. */
             max-height: 24px!important;
             padding: 0 8px!important;
-            /* Match the black page instead of Gowo's grey strip. */
-            background: #000!important;
+            background: transparent!important;
             line-height: 24px!important;
             overflow: hidden!important;
             text-overflow: ellipsis!important;
             white-space: nowrap!important;
-            pointer-events: none;
         }
         app-chat-messages-room .chat-footer {
             --gowo-chat-control-height: 36px;

@@ -2736,7 +2736,12 @@
            Keep it in flow instead and slide it open and shut; the chat's
            bottom-follow scroll keeps the last message in view as it resizes. */
         app-chat-messages-room .messages-wrapper {
+            padding-top: 0!important;
             padding-bottom: 4px!important;
+        }
+        /* Let the message list start right at the header separator. */
+        .chat:has(app-chat-messages-room) .chat-header {
+            margin-bottom: 0!important;
         }
         app-chat-messages-room .form-message .writing-message {
             position: static!important;

@@ -151,5 +151,6 @@ test('typing notice slides open on one line and leaves only a small gap when shu
     assert.match(rule, /text-overflow: ellipsis!important/);
     assert.match(css, /\.writing-message\.gowo-typing-active \{\s*max-height: 16px!important/);
     assert.match(css, /transition: max-height 180ms ease/);
-    assert.match(css, /\.messages-wrapper \{\s*padding-bottom: 4px!important/);
+    assert.match(css, /\.messages-wrapper \{\s*padding-top: 0!important;\s*padding-bottom: 4px!important/);
+    assert.match(css, /\.chat:has\(app-chat-messages-room\) \.chat-header \{\s*margin-bottom: 0!important/);
 });

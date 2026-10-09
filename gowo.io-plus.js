@@ -2520,6 +2520,18 @@
         app-chat-messages-room .form-message {
             position: relative!important;
         }
+        /* Gowo pins the typing notice 24px above the form; a long name in the
+           narrow chat pane wrapped onto a second line that covered the input. */
+        app-chat-messages-room .form-message .writing-message {
+            box-sizing: border-box!important;
+            height: 24px!important;
+            padding: 0 8px!important;
+            line-height: 24px!important;
+            overflow: hidden!important;
+            text-overflow: ellipsis!important;
+            white-space: nowrap!important;
+            pointer-events: none;
+        }
         app-chat-messages-room .chat-footer {
             --gowo-chat-control-height: 36px;
             --gowo-chat-control-radius: 7px;

@@ -140,3 +140,12 @@ test('composer uses its full width without unconditional native GIF padding', ()
     assert.match(inputRule, /padding: 5px 8px!important/);
     assert.match(css, /:has\(#search-gifts-button:not\(\[hidden\]\)\) textarea \{\s*padding-right: 32px!important/);
 });
+
+test('typing notice stays on one line above the composer', () => {
+    const { document } = harness();
+    const css = document.querySelector('style').textContent;
+    const rule = css.match(/\.form-message \.writing-message \{([^}]+)\}/)[1];
+    assert.match(rule, /height: 24px!important/);
+    assert.match(rule, /white-space: nowrap!important/);
+    assert.match(rule, /text-overflow: ellipsis!important/);
+});

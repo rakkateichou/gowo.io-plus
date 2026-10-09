@@ -967,6 +967,7 @@
         if (event.target.closest?.(
             '.message .actions app-icon-undo'
         )) {
+            clearHistoryReply();
             // Let Gowo select and render the quoted message first.
             requestAnimationFrame(focusChatComposer);
         }
@@ -1966,6 +1967,135 @@
         }
     }
 
+    const historyReplyEvent = 'gowo-plus-history-reply';
+    const historyReplySentEvent = 'gowo-plus-history-reply-sent';
+    const historyReplyBarId = 'gowo-history-reply';
+    let historyReplyBridgeInstalled = false;
+
+    // Gowo replies by sending the quoted message object with the socket
+    // "message" packet, but restored messages have no Angular object behind
+    // them. A page-world hook adds the quote to the next outgoing message.
+    function pageHistoryReplyBridge(replyEvent, sentEvent) {
+        let pending = null;
+        document.addEventListener(replyEvent, event => {
+            try { pending = event.detail ? JSON.parse(event.detail) : null; } catch { pending = null; }
+        });
+        const nativeSend = WebSocket.prototype.send;
+        WebSocket.prototype.send = function(data) {
+            const match = pending && typeof data === 'string' &&
+                data.match(/^42(\/[^,[]*,)?(\d*)(\[[\s\S]*)$/);
+            if (match) {
+                try {
+                    const packet = JSON.parse(match[3]);
+                    if (packet[0] === 'message' && packet[1] && typeof packet[1] === 'object') {
+                        packet[1].reply = pending;
+                        pending = null;
+                        data = `42${match[1] || ''}${match[2]}${JSON.stringify(packet)}`;
+                        document.dispatchEvent(new CustomEvent(sentEvent));
+                    }
+                } catch {}
+            }
+            return nativeSend.call(this, data);
+        };
+    }
+
+    function installHistoryReplyBridge() {
+        if (historyReplyBridgeInstalled) return;
+        historyReplyBridgeInstalled = true;
+        const script = document.createElement('script');
+        script.textContent = `(${pageHistoryReplyBridge})(${JSON.stringify(historyReplyEvent)}, ${JSON.stringify(historyReplySentEvent)});`;
+        (document.head || document.documentElement).append(script);
+        script.remove();
+        document.addEventListener(historyReplySentEvent, () => clearHistoryReply(false));
+    }
+
+    function historyReplyPayload(entry) {
+        const [name = '', ...surname] = entry.author.trim().split(/\s+/);
+        const text = entry.parts.filter(part => part.type !== 'image')
+            .map(part => part.text).join('').trim();
+        const image = entry.parts.find(part => part.type === 'image');
+        const content = !text && image ?
+            { id: entry.id, type: 'gif', message: `<img class="w-100 mt-2" src="${image.url.replace(/"/g, '%22')}" alt="gif">` } :
+            { id: entry.id, type: 'text', message: text };
+        return { from: { name, surname: surname.join(' ') }, content };
+    }
+
+    function historyIcon(paths, viewBox, stroke) {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', viewBox);
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('aria-hidden', 'true');
+        for (const d of paths) {
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', d);
+            path.setAttribute('stroke', stroke);
+            path.setAttribute('stroke-width', '1.5');
+            path.setAttribute('stroke-linecap', 'round');
+            path.setAttribute('stroke-linejoin', 'round');
+            svg.append(path);
+        }
+        return svg;
+    }
+
+    // Gowo's own undo and close-square icons.
+    const historyUndoIcon = stroke => historyIcon([
+        'M7.12988 18.8096H15.1299C17.8899 18.8096 20.1299 16.5696 20.1299 13.8096C20.1299 11.0496 17.8899 8.80957 15.1299 8.80957H4.12988',
+        'M6.43012 11.3104L3.87012 8.75043L6.43012 6.19043'
+    ], '0 0 24 25', stroke);
+    const historyCloseIcon = () => historyIcon([
+        'M9.17 14.8299L14.83 9.16992',
+        'M14.83 14.8299L9.17 9.16992',
+        'M9 22H15C20 22 22 20 22 15V9C22 4 20 2 15 2L9 2C4 2 2 4 2 9L2 15C2 20 4 22 9 22Z'
+    ], '0 0 24 24', '#fff');
+
+    function clearHistoryReply(notify = true) {
+        const bar = document.getElementById(historyReplyBarId);
+        if (!bar) return;
+        bar.remove();
+        if (notify) document.dispatchEvent(new CustomEvent(historyReplyEvent, { detail: '' }));
+    }
+
+    function startHistoryReply(entry) {
+        const form = document.querySelector('app-chat-messages-room .form-message');
+        const footer = form?.querySelector(':scope > .chat-footer') || form?.querySelector('.chat-footer');
+        if (!form || !footer) return;
+        installHistoryReplyBridge();
+        // Only one quote can be sent; drop Gowo's own pending reply.
+        form.querySelector(`.reply:not(#${historyReplyBarId}) app-icon-close-square`)?.click();
+        clearHistoryReply(false);
+
+        const bar = document.createElement('div');
+        bar.id = historyReplyBarId;
+        bar.className = 'reply';
+        const content = document.createElement('div');
+        content.className = 'reply__content';
+        const name = document.createElement('p');
+        name.className = 'name';
+        name.textContent = entry.author;
+        const text = document.createElement('p');
+        text.className = 'text';
+        text.textContent = entry.parts.map(part => part.text).join('');
+        renderSevenTvEmotes(text);
+        content.append(name, text);
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.title = 'Cancel reply';
+        close.setAttribute('aria-label', 'Cancel reply');
+        close.append(historyCloseIcon());
+        close.addEventListener('mousedown', event => event.preventDefault());
+        close.addEventListener('click', event => {
+            event.stopPropagation();
+            clearHistoryReply();
+        });
+        bar.append(historyUndoIcon('#fff'), content, close);
+        footer.parentNode.insertBefore(bar, footer);
+        formatReplyAuthors();
+        document.dispatchEvent(new CustomEvent(historyReplyEvent, {
+            detail: JSON.stringify(historyReplyPayload(entry))
+        }));
+        focusChatComposer();
+    }
+
     function renderChatHistory(room) {
         if (chatHistoryRoom !== room || !room.list?.isConnected || !room.loaded) return;
         const savedById = new Map(room.data.messages.map(entry => [entry.id, entry]));
@@ -2020,7 +2150,22 @@
             appendHistoryParts(body, entry.parts);
             text.append(body);
             user.append(text);
-            message.append(user);
+            const actions = document.createElement('ul');
+            actions.className = 'list-unstyled actions gowo-history-actions';
+            const item = document.createElement('li');
+            const replyButton = document.createElement('button');
+            replyButton.type = 'button';
+            replyButton.title = 'Reply';
+            replyButton.setAttribute('aria-label', 'Reply');
+            replyButton.append(historyUndoIcon('#A5A5A5'));
+            replyButton.addEventListener('mousedown', event => event.preventDefault());
+            replyButton.addEventListener('click', event => {
+                event.stopPropagation();
+                startHistoryReply(entry);
+            });
+            item.append(replyButton);
+            actions.append(item);
+            message.append(user, actions);
             renderMessageEmotes(message);
             archive.append(message);
         }
@@ -2230,6 +2375,16 @@
     });
     window.addEventListener('resize', scheduleChatBottom);
 
+    function shortenTypingNotice() {
+        const notice = document.querySelector('app-chat-messages-room .writing-message');
+        if (!notice) return;
+        const walker = document.createTreeWalker(notice, 4);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const short = node.nodeValue.replace(/(печата(?:ет|ют))(?!\.\.\.$)[\s\S]*$/, '$1...');
+            if (short !== node.nodeValue) node.nodeValue = short;
+        }
+    }
+
     function formatReplyAuthors() {
         document.querySelectorAll(
             '.message .text__reply__name, app-chat-messages-room .reply__content .name'
@@ -2401,6 +2556,29 @@
         .gowo-history-message .text__reply__name { font-size: 10px; margin-bottom: 2px; }
         .gowo-history-message .text__reply__text { font-size: 9px; color: #fff!important; }
         .gowo-history-message img:not(.gowo-chat-emote) { display: block; max-width: 100%; height: auto; }
+        /* Gowo's hover rule is scoped to its own nodes, so restored messages
+           need their own. Without a composer (logged out) there is no reply. */
+        .gowo-history-message .gowo-history-actions { display: none; margin: 0; }
+        .gowo-history-message:hover .gowo-history-actions { display: flex; align-items: center; }
+        app-chat-messages-room:not(:has(.form-message textarea)) .gowo-history-actions { display: none!important; }
+        .gowo-history-actions button, #${historyReplyBarId} > button {
+            display: flex; padding: 0; border: 0; background: transparent; cursor: pointer;
+        }
+        .gowo-history-actions svg { width: 18px; height: 18px; }
+        #${historyReplyBarId} {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 10px; padding: 5px 0; border-top: 1px solid #5F666D;
+        }
+        #${historyReplyBarId} > svg, #${historyReplyBarId} > button svg {
+            flex: 0 0 24px; width: 24px; height: 24px;
+        }
+        #${historyReplyBarId} .reply__content { width: 100%; min-width: 0; white-space: nowrap; overflow: hidden; }
+        #${historyReplyBarId} .reply__content p {
+            margin: 0; text-align: left; font-size: 12px; line-height: 16px; color: #fff;
+        }
+        #${historyReplyBarId} .reply__content .name { font-weight: 600; margin-bottom: 2px; }
+        #${historyReplyBarId} .reply__content .text { overflow: hidden; text-overflow: ellipsis; }
+        #${historyReplyBarId} .gowo-chat-emote { height: 16px!important; vertical-align: middle; }
         .gowo-history-setting { margin: 8px 0; }
         .gowo-history-setting p { margin: 0 0 6px; }
         .gowo-history-status { color: #999; }
@@ -2879,6 +3057,7 @@
         syncChatHistory();
         injectChatHistorySetting();
         formatReplyAuthors();
+        shortenTypingNotice();
 
         remove([
             '.wrap-head-room',

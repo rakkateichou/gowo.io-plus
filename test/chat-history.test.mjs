@@ -84,7 +84,7 @@ function harness({ database = new IDBFactory(), room = 'room-a', content = '', h
     const context = vm.createContext({
         window, document, URL, console, crypto: webcrypto, TextEncoder, Intl,
         Date: class extends Date { constructor(...args) { super(...(args.length ? args : [clock.now])); } static now() { return clock.now; } },
-        HTMLDivElement: dom.HTMLDivElement, HTMLIFrameElement: dom.HTMLIFrameElement,
+        HTMLDivElement: dom.HTMLDivElement, HTMLIFrameElement: dom.HTMLIFrameElement, CustomEvent: dom.CustomEvent,
         NodeFilter: { SHOW_TEXT: 4 }, localStorage: storage, sessionStorage: storage,
         requestAnimationFrame: callback => { frames.push(callback); return frames.length; },
         cancelAnimationFrame() {}, setTimeout: () => 1, clearTimeout() {},
@@ -157,7 +157,8 @@ test('reload restores room messages, full-name colours, quotes, emotes and first
     assert.equal(saved.querySelector('.text__reply__name').textContent, 'Друг');
     assert.equal(saved.querySelectorAll('.gowo-chat-emote').length, 2);
     assert.equal(saved.dataset.gowoMessageTime, new Date(first.clock.now).toLocaleString());
-    assert.equal(saved.querySelector('.actions'), null); // An archive never invents a live reply/delete handler.
+    // Restored messages offer reply, never Gowo's delete handler.
+    assert.deepEqual([...saved.querySelectorAll('.actions button')].map(button => button.title), ['Reply']);
     assert.equal((await stored(first.database)).messages.length, 1);
 });
 
@@ -475,4 +476,68 @@ test('system messages and replacement room transcripts start new sender groups',
     h.document.body.innerHTML = chat(message('b1') + message('b2'));
     await h.settle();
     assert.deepEqual(grouping(h).map(row => row.consecutive), [false, true]);
+});
+
+const composerChat = content => `<app-chat-messages-room><div class="messages-wrapper"><div class="messages">${content}</div></div>
+  <form class="form-message"><p class="writing-message">Полина Гончарова печатает сообщение</p>
+    <div class="chat-footer"><div class="d-flex"><div class="textarea"><textarea></textarea></div></div></div>
+  </form></app-chat-messages-room>${settings}`;
+
+test('restored messages reply through a Gowo-style bar and queue the quote for the next send', async () => {
+    const first = harness({ content: message('m1', 'Hello :pog:', 'Руслан Эммм') });
+    await first.settle();
+    const reload = harness({ database: first.database, html: composerChat('') });
+    const input = reload.document.querySelector('textarea');
+    input.setSelectionRange = () => {};
+    const queued = [];
+    reload.document.addEventListener('gowo-plus-history-reply', event => queued.push(event.detail));
+    await reload.settle();
+    reload.document.querySelector('[data-gowo-history-id="m1"] .actions button').click();
+    const bar = reload.document.getElementById('gowo-history-reply');
+    assert.ok(bar);
+    assert.equal(bar.nextElementSibling, reload.document.querySelector('.chat-footer'));
+    assert.equal(bar.querySelector('.name').textContent, 'Руслан');
+    assert.equal(bar.querySelectorAll('.gowo-chat-emote').length, 1);
+    assert.deepEqual(JSON.parse(queued.at(-1)), {
+        from: { name: 'Руслан', surname: 'Эммм' },
+        content: { id: 'm1', type: 'text', message: 'Hello :pog:' }
+    });
+    bar.querySelector('button').click();
+    assert.equal(reload.document.getElementById('gowo-history-reply'), null);
+    assert.equal(queued.at(-1), '');
+});
+
+test('the typing notice is shortened to "<name> печатает..."', async () => {
+    const h = harness({ html: composerChat('') });
+    await h.settle();
+    assert.equal(h.document.querySelector('.writing-message').textContent, 'Полина Гончарова печатает...');
+});
+
+test('the page hook adds a queued quote to the next socket message only', () => {
+    const source = runtime.slice(runtime.indexOf('    function pageHistoryReplyBridge('),
+        runtime.indexOf('    function installHistoryReplyBridge('));
+    const document = new EventTarget();
+    const sent = [];
+    class WebSocket { send(data) { sent.push(data); } }
+    const context = vm.createContext({ document, WebSocket, CustomEvent: class extends Event {
+        constructor(type, options = {}) { super(type); this.detail = options.detail; }
+    }, JSON });
+    vm.runInContext(`${source}\npageHistoryReplyBridge('reply', 'sent');`, context);
+    let sentEvents = 0;
+    document.addEventListener('sent', () => sentEvents++);
+    const reply = { from: { name: 'Руслан', surname: '' }, content: { id: 'm1', type: 'text', message: 'Hi' } };
+    const socket = new WebSocket();
+    socket.send('42["typing","room-a"]');
+    document.dispatchEvent(new context.CustomEvent('reply', { detail: JSON.stringify(reply) }));
+    socket.send('2');
+    socket.send('4213["message",{"message":{"type":"text","message":"yo"},"alias":"room-a"}]');
+    socket.send('42["message",{"message":{"type":"text","message":"again"},"alias":"room-a"}]');
+    assert.equal(sent[0], '42["typing","room-a"]');
+    assert.equal(sent[1], '2');
+    assert.deepEqual(JSON.parse(sent[2].slice(4)), ['message', {
+        message: { type: 'text', message: 'yo' }, alias: 'room-a', reply
+    }]);
+    assert.ok(sent[2].startsWith('4213['));
+    assert.equal(JSON.parse(sent[3].slice(2))[1].reply, undefined);
+    assert.equal(sentEvents, 1);
 });

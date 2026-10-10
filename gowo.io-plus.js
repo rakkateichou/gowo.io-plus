@@ -437,7 +437,11 @@
         `(?:${sevenTvTokenSource})`,
         'i'
     );
+    // The 7TV CDN is unreachable for some viewers, so serve the repository's
+    // copies (the same host as this runtime) and keep 7TV as the fallback.
     const sevenTvImageUrl = id =>
+        `https://raw.githubusercontent.com/rakkateichou/gowo.io-plus/main/emotes/${id}.webp`;
+    const sevenTvFallbackImageUrl = id =>
         `https://cdn.7tv.app/emote/${id}/2x.webp`;
     const emoteToggleId = 'gowo-emote-toggle';
     const emotePickerId = 'gowo-emote-picker';
@@ -461,6 +465,9 @@
             'gowo-emote-picker-image' :
             'gowo-chat-emote';
         image.src = sevenTvImageUrl(emote.id);
+        image.addEventListener('error', () => {
+            image.src = sevenTvFallbackImageUrl(emote.id);
+        }, { once: true });
         image.alt = picker ? '' : emote.label;
         image.title = emote.token;
         image.loading = 'lazy';

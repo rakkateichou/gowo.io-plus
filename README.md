@@ -42,6 +42,9 @@ labels that wrap to fit narrow panels. It scrolls vertically as needed.
 The catalogue includes hi, NOOOO, catJAM, CAUGHT, peepoRun, peepoLove, TROLL, Aware, Prayge, RAGEY and Aloo;
 retired tokens still render in existing messages.
 
+Emote images are served from this repository's `emotes/` folder, so they also
+load where the 7TV CDN is unreachable; 7TV is only used as a fallback.
+
 ## Shared cursor drawing
 
 Hold `Ctrl` and move the pointer over the video to draw. Release `Ctrl`, switch tabs,

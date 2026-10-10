@@ -206,3 +206,19 @@ test('explicit Send bypasses suggestions and preserves the typed message', () =>
     assert.equal(h.input.value, ':run');
     assert.equal(h.list.hidden, true);
 });
+
+test('emote images load from the repository and fall back to 7TV once', async () => {
+    const { existsSync } = await import('node:fs');
+    const h = harness();
+    const emotes = vm.runInContext('sevenTvRenderableEmotes', h.context);
+    for (const emote of emotes) {
+        assert.ok(existsSync(new URL(`../emotes/${emote.id}.webp`, import.meta.url)), emote.token);
+    }
+    const image = h.context.createSevenTvEmoteImage(emotes[0]);
+    assert.equal(image.src, `https://raw.githubusercontent.com/rakkateichou/gowo.io-plus/main/emotes/${emotes[0].id}.webp`);
+    h.fire(image, 'error');
+    assert.equal(image.src, `https://cdn.7tv.app/emote/${emotes[0].id}/2x.webp`);
+    image.src = 'broken';
+    h.fire(image, 'error');
+    assert.equal(image.src, 'broken');
+});

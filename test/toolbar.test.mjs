@@ -296,3 +296,53 @@ test('players without native episode/audio dropdowns keep the custom controls av
     assert.equal(controls.style.opacity, '1');
     assert.equal(controls.inert, false);
 });
+
+test('a fullscreen player frame repaints the cursors forwarded by the room page', () => {
+    const h = harness(true);
+    const paint = (message, overrides) => h.receive({ source: 'gowo-plus-cursor-paint-v1', ...message }, overrides);
+    const show = { type: 'show', client: 'abc', username: 'Руслан Эммм', point: { x: 0.5, y: 0.25 } };
+    const cursors = () => [...h.document.querySelectorAll('.gowo-shared-cursor')];
+    paint(show);
+    assert.equal(cursors().length, 0, 'the room page paints while the frame is not fullscreen');
+    const player = h.document.querySelector('#oframeplayer');
+    h.document.fullscreenElement = player;
+    paint(show, { origin: 'https://evil.example' });
+    paint(show, { source: {} });
+    assert.equal(cursors().length, 0, 'only the Gowo parent may paint');
+    paint(show);
+    paint({ ...show, point: { x: 0.6, y: 0.25 } });
+    assert.equal(cursors().length, 1);
+    assert.equal(cursors()[0].parentNode, player, 'only fullscreen descendants are visible');
+    assert.equal(cursors()[0].style.left, '600px');
+    assert.equal(cursors()[0].style.top, '175px');
+    assert.equal(cursors()[0].querySelector('.gowo-shared-cursor-name').textContent, 'Руслан');
+    assert.match(player.querySelector('.gowo-shared-cursor-trail-line').getAttribute('d'), /^M 500\.0,175\.0 L 600\.0,175\.0$/);
+    assert.match([...h.document.querySelectorAll('style')].map(style => style.textContent).join(''), /\.gowo-shared-cursor \{/);
+    paint({ type: 'remove', client: 'abc' });
+    assert.equal(cursors().length, 0);
+    assert.equal(player.querySelector('.gowo-shared-cursor-trail'), null);
+});
+
+test('the room page forwards cursors to the player frame only while that frame is fullscreen', () => {
+    const h = harness();
+    const fire = (type, props) => {
+        const event = new h.window.document.defaultView.Event(type, { bubbles: true, cancelable: true });
+        h.document.dispatchEvent(Object.assign(event, props));
+        h.flush();
+    };
+    h.iframe.getBoundingClientRect = () => ({ left: 100, top: 50, width: 800, height: 400, right: 900, bottom: 450 });
+    const painted = () => h.messages.filter(({ message }) => message.source === 'gowo-plus-cursor-paint-v1');
+    fire('keydown', { key: 'Control', code: 'ControlLeft', ctrlKey: true });
+    fire('mousemove', { clientX: 300, clientY: 150 });
+    assert.equal(painted().length, 0);
+    assert.equal(h.document.querySelectorAll('.gowo-shared-cursor.local').length, 1);
+    h.document.fullscreenElement = h.iframe;
+    fire('mousemove', { clientX: 500, clientY: 250 });
+    const show = painted().at(-1);
+    assert.equal(show.origin, 'https://player.obrut.show');
+    assert.equal(show.message.type, 'show');
+    assert.equal(show.message.local, true);
+    assert.deepEqual({ ...show.message.point }, { x: 0.5, y: 0.5 });
+    fire('keyup', { key: 'Control', code: 'ControlLeft', ctrlKey: false });
+    assert.equal(painted().at(-1).message.type, 'remove');
+});

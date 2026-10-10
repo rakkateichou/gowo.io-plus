@@ -9,6 +9,224 @@
         event.code === 'ControlLeft' || event.code === 'ControlRight';
     const toolbarBridgeMarker = 'gowo-plus-player-toolbar-v1';
 
+    const cursorPaintMarker = 'gowo-plus-cursor-paint-v1';
+    const sharedCursorCSS = `
+        .gowo-shared-cursor {
+            --gowo-user-color: #fff;
+            position: fixed;
+            z-index: 25000;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+            transform: translate(-2px, -2px);
+            transition: left 45ms linear, top 45ms linear,
+                opacity 100ms ease;
+        }
+        .gowo-shared-cursor.local {
+            transition: opacity 100ms ease;
+        }
+        .gowo-shared-cursor.visible { opacity: 1; }
+        .gowo-shared-cursor-trail {
+            --gowo-user-color: #fff;
+            position: fixed;
+            inset: 0;
+            z-index: 24999;
+            width: 100vw;
+            height: 100vh;
+            overflow: visible;
+            pointer-events: none;
+        }
+        .gowo-shared-cursor-trail-line {
+            fill: none;
+            stroke: var(--gowo-user-color);
+            stroke-width: 3.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            vector-effect: non-scaling-stroke;
+            filter: drop-shadow(0 0 2px #000)
+                drop-shadow(0 0 4px var(--gowo-user-color))
+                drop-shadow(0 0 8px var(--gowo-user-color));
+        }
+        .gowo-shared-cursor-arrow {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 20px;
+            height: 28px;
+            overflow: visible;
+            filter: drop-shadow(0 0 2px #000)
+                drop-shadow(0 0 4px var(--gowo-user-color))
+                drop-shadow(0 0 9px var(--gowo-user-color));
+        }
+        .gowo-shared-cursor-arrow path {
+            fill: #fff;
+            stroke: #050505;
+            stroke-width: 1.5;
+            stroke-linejoin: round;
+        }
+        .gowo-shared-cursor-name {
+            position: absolute;
+            left: 17px;
+            top: 19px;
+            max-width: 10rem;
+            padding: 0.16rem 0.42rem;
+            overflow: hidden;
+            border: 1px solid var(--gowo-user-color);
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.78);
+            box-shadow: 0 0 10px var(--gowo-user-color);
+            color: var(--gowo-user-color);
+            font: 700 0.65rem/1.25 system-ui, sans-serif;
+            text-overflow: ellipsis;
+            text-shadow: 0 1px 2px #000;
+            white-space: nowrap;
+        }
+    `;
+
+    // Paints named cursors and their smoothed trails. Used by the room page
+    // and, while the player is fullscreen, by the bridge inside its frame.
+    function createCursorPainter() {
+        const maxTrailPoints = 600;
+        const curveTension = 0.45;
+        const elements = new Map();
+        const trails = new Map();
+        // Only descendants of the fullscreen element are visible.
+        const host = () => {
+            const fullscreen = document.fullscreenElement;
+            return fullscreen && !['IFRAME', 'VIDEO'].includes(fullscreen.tagName) ?
+                fullscreen : document.body;
+        };
+
+        function trailPath(points) {
+            if (!points.length) return '';
+            const coordinate = point =>
+                `${point.x.toFixed(1)},${point.y.toFixed(1)}`;
+            if (points.length === 1) return `M ${coordinate(points[0])}`;
+            if (points.length === 2) {
+                return `M ${coordinate(points[0])} L ${coordinate(points[1])}`;
+            }
+
+            let path = `M ${coordinate(points[0])}`;
+            for (let index = 0; index < points.length - 1; index++) {
+                const before = points[Math.max(0, index - 1)];
+                const current = points[index];
+                const next = points[index + 1];
+                const after = points[Math.min(points.length - 1, index + 2)];
+                const scale = curveTension / 6;
+                const controlOne = {
+                    x: current.x + ((next.x - before.x) * scale),
+                    y: current.y + ((next.y - before.y) * scale)
+                };
+                const controlTwo = {
+                    x: next.x - ((after.x - current.x) * scale),
+                    y: next.y - ((after.y - current.y) * scale)
+                };
+                path += ` C ${coordinate(controlOne)} ` +
+                    `${coordinate(controlTwo)} ${coordinate(next)}`;
+            }
+            return path;
+        }
+
+        function trailFor(clientId, username) {
+            let trail = trails.get(clientId);
+            if (!trail) {
+                const element = document.createElementNS(
+                    'http://www.w3.org/2000/svg',
+                    'svg'
+                );
+                element.classList.add('gowo-shared-cursor-trail');
+                element.setAttribute('aria-hidden', 'true');
+                element.setAttribute(
+                    'viewBox',
+                    `0 0 ${window.innerWidth} ${window.innerHeight}`
+                );
+                element.setAttribute('preserveAspectRatio', 'none');
+                const line = document.createElementNS(
+                    'http://www.w3.org/2000/svg',
+                    'path'
+                );
+                line.classList.add('gowo-shared-cursor-trail-line');
+                element.append(line);
+                host().append(element);
+                trail = { element, line, points: [] };
+                trails.set(clientId, trail);
+            }
+            trail.element.style.setProperty(
+                '--gowo-user-color',
+                stringToColor(username)
+            );
+            return trail;
+        }
+
+        function addTrailPoint(clientId, username, x, y) {
+            const trail = trailFor(clientId, username);
+            const previous = trail.points[trail.points.length - 1];
+            if (previous) {
+                const distance = Math.hypot(x - previous.x, y - previous.y);
+                if (distance < 1) return;
+            }
+            trail.points.push({ x, y });
+            if (trail.points.length > maxTrailPoints) {
+                trail.points.splice(0, trail.points.length - maxTrailPoints);
+            }
+            trail.line.setAttribute('d', trailPath(trail.points));
+        }
+
+        function elementFor(clientId, username, local) {
+            let element = elements.get(clientId);
+            if (!element) {
+                element = document.createElement('div');
+                element.className = 'gowo-shared-cursor';
+                element.setAttribute('aria-hidden', 'true');
+                element.innerHTML = `
+                    <svg class="gowo-shared-cursor-arrow"
+                        viewBox="0 0 20 28" focusable="false" aria-hidden="true">
+                        <path d="M2 2v20l5.4-5 4.1 9 4-1.8-4.1-8.8H19z"></path>
+                    </svg>
+                    <span class="gowo-shared-cursor-name"></span>
+                `;
+                if (local) element.classList.add('local');
+                host().append(element);
+                elements.set(clientId, element);
+            }
+            const firstName = String(username || '').trim().split(/\s+/)[0];
+            element.querySelector('.gowo-shared-cursor-name').textContent =
+                firstName || 'Anonymous';
+            element.style.setProperty(
+                '--gowo-user-color',
+                stringToColor(username)
+            );
+            return element;
+        }
+
+        function removeTrail(clientId) {
+            trails.get(clientId)?.element.remove();
+            trails.delete(clientId);
+        }
+
+        function remove(clientId) {
+            elements.get(clientId)?.remove();
+            elements.delete(clientId);
+            removeTrail(clientId);
+        }
+
+        return {
+            host,
+            remove,
+            clients: () => Array.from(elements.keys()),
+            clearTrails: () => Array.from(trails.keys()).forEach(removeTrail),
+            clear: () => [...elements.keys(), ...trails.keys()].forEach(remove),
+            paint(clientId, username, x, y, local = false) {
+                const element = elementFor(clientId, username, local);
+                addTrailPoint(clientId, username, x, y);
+                element.style.left = `${x}px`;
+                element.style.top = `${y}px`;
+                element.classList.add('visible');
+            }
+        };
+    }
+
     function initPlayerToolbarBridge() {
         let state = null;
         let controls = null;
@@ -274,6 +492,36 @@
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState !== 'visible') stop();
         });
+
+        // The room page draws the cursors over this frame. Fullscreen hides
+        // everything outside the frame, so repaint them here meanwhile.
+        const painter = createCursorPainter();
+        let painterStyled = false;
+        window.addEventListener('message', event => {
+            const message = event.data;
+            if (event.origin !== 'https://gowo.io' || event.source !== window.parent ||
+                message?.source !== cursorPaintMarker) return;
+            const client = String(message.client || '').slice(0, 64);
+            if (message.type === 'clear') return painter.clear();
+            if (message.type === 'remove') return painter.remove(client);
+            const x = Number(message.point?.x);
+            const y = Number(message.point?.y);
+            if (message.type !== 'show' || !client || !document.fullscreenElement ||
+                !(x >= 0 && x <= 1 && y >= 0 && y <= 1)) return;
+            if (!painterStyled) {
+                painterStyled = true;
+                injectCSS(sharedCursorCSS);
+            }
+            painter.paint(
+                client,
+                String(message.username || 'Anonymous').slice(0, 40),
+                x * window.innerWidth,
+                y * window.innerHeight,
+                message.local === true
+            );
+        });
+        document.addEventListener('fullscreenchange', () => painter.clear());
+        window.addEventListener('resize', () => painter.clearTrails());
     }
 
     if (window.top !== window.self) {
@@ -1213,10 +1461,6 @@
     const cursorRelayUrl = 'wss://n8n.rkde.su/gowo-cursor';
     const cursorSendIntervalMs = 50;
     const cursorStaleAfterMs = 1600;
-    const cursorMaxTrailPoints = 600;
-    const cursorTrailCurveTension = 0.45;
-    const cursorElements = new Map();
-    const cursorTrails = new Map();
     const cursorStaleTimers = new Map();
     let cursorSocket = null;
     let cursorRoomKey = '';
@@ -1349,128 +1593,26 @@
         };
     }
 
-    function removeCursorTrail(clientId) {
-        const trail = cursorTrails.get(clientId);
-        trail?.element.remove();
-        cursorTrails.delete(clientId);
+    const cursorPainter = createCursorPainter();
+
+    // A fullscreen player shows only its own frame, so the frame's bridge
+    // repaints the cursors there from these messages.
+    function forwardCursorToFrame(message) {
+        const frame = document.fullscreenElement;
+        if (!(frame instanceof HTMLIFrameElement) || frame !== getCursorSurface()) return;
+        let origin = '';
+        try { origin = new URL(frame.src).origin; } catch { return; }
+        if (origin !== 'https://alloha.gowo.tv' &&
+            !/^https:\/\/[^/]+\.obrut\.show$/.test(origin)) return;
+        frame.contentWindow?.postMessage({ source: cursorPaintMarker, ...message }, origin);
     }
 
     function removeCursor(clientId) {
-        cursorElements.get(clientId)?.remove();
-        cursorElements.delete(clientId);
-        removeCursorTrail(clientId);
+        cursorPainter.remove(clientId);
+        forwardCursorToFrame({ type: 'remove', client: clientId });
         const timer = cursorStaleTimers.get(clientId);
         if (timer) clearTimeout(timer);
         cursorStaleTimers.delete(clientId);
-    }
-
-    function cursorTrailElement(clientId, username) {
-        let trail = cursorTrails.get(clientId);
-        if (!trail) {
-            const element = document.createElementNS(
-                'http://www.w3.org/2000/svg',
-                'svg'
-            );
-            element.classList.add('gowo-shared-cursor-trail');
-            element.setAttribute('aria-hidden', 'true');
-            element.setAttribute(
-                'viewBox',
-                `0 0 ${window.innerWidth} ${window.innerHeight}`
-            );
-            element.setAttribute('preserveAspectRatio', 'none');
-            const line = document.createElementNS(
-                'http://www.w3.org/2000/svg',
-                'path'
-            );
-            line.classList.add('gowo-shared-cursor-trail-line');
-            element.append(line);
-            document.body.append(element);
-            trail = { element, line, points: [] };
-            cursorTrails.set(clientId, trail);
-        }
-        trail.element.style.setProperty(
-            '--gowo-user-color',
-            stringToColor(username)
-        );
-        return trail;
-    }
-
-    function cursorTrailPath(points) {
-        if (!points.length) return '';
-        const coordinate = point =>
-            `${point.x.toFixed(1)},${point.y.toFixed(1)}`;
-        if (points.length === 1) return `M ${coordinate(points[0])}`;
-        if (points.length === 2) {
-            return `M ${coordinate(points[0])} L ${coordinate(points[1])}`;
-        }
-
-        let path = `M ${coordinate(points[0])}`;
-        for (let index = 0; index < points.length - 1; index++) {
-            const before = points[Math.max(0, index - 1)];
-            const current = points[index];
-            const next = points[index + 1];
-            const after = points[Math.min(points.length - 1, index + 2)];
-            const scale = cursorTrailCurveTension / 6;
-            const controlOne = {
-                x: current.x + ((next.x - before.x) * scale),
-                y: current.y + ((next.y - before.y) * scale)
-            };
-            const controlTwo = {
-                x: next.x - ((after.x - current.x) * scale),
-                y: next.y - ((after.y - current.y) * scale)
-            };
-            path += ` C ${coordinate(controlOne)} ` +
-                `${coordinate(controlTwo)} ${coordinate(next)}`;
-        }
-        return path;
-    }
-
-    function addCursorTrailPoint(clientId, username, x, y) {
-        const trail = cursorTrailElement(clientId, username);
-        const previous = trail.points[trail.points.length - 1];
-        if (previous) {
-            const distance = Math.hypot(x - previous.x, y - previous.y);
-            if (distance < 1) return;
-        }
-        trail.points.push({ x, y });
-        if (trail.points.length > cursorMaxTrailPoints) {
-            trail.points.splice(
-                0,
-                trail.points.length - cursorMaxTrailPoints
-            );
-        }
-        trail.line.setAttribute('d', cursorTrailPath(trail.points));
-    }
-
-    function clearCursorTrails() {
-        Array.from(cursorTrails.keys()).forEach(removeCursorTrail);
-    }
-
-    function cursorElement(clientId, username) {
-        let element = cursorElements.get(clientId);
-        if (!element) {
-            element = document.createElement('div');
-            element.className = 'gowo-shared-cursor';
-            element.setAttribute('aria-hidden', 'true');
-            element.innerHTML = `
-                <svg class="gowo-shared-cursor-arrow"
-                    viewBox="0 0 20 28" focusable="false" aria-hidden="true">
-                    <path d="M2 2v20l5.4-5 4.1 9 4-1.8-4.1-8.8H19z"></path>
-                </svg>
-                <span class="gowo-shared-cursor-name"></span>
-            `;
-            if (clientId === cursorClientId) element.classList.add('local');
-            document.body.append(element);
-            cursorElements.set(clientId, element);
-        }
-        const firstName = String(username || '').trim().split(/\s+/)[0];
-        element.querySelector('.gowo-shared-cursor-name').textContent =
-            firstName || 'Anonymous';
-        element.style.setProperty(
-            '--gowo-user-color',
-            stringToColor(username)
-        );
-        return element;
     }
 
     function showCursor(clientId, username, point) {
@@ -1483,13 +1625,11 @@
         if (rect.width <= 0 || rect.height <= 0) return;
         const x = rect.left + (point.x * rect.width);
         const y = rect.top + (point.y * rect.height);
-        const element = cursorElement(clientId, username);
-        addCursorTrailPoint(clientId, username, x, y);
-        element.style.left = `${x}px`;
-        element.style.top = `${y}px`;
-        element.classList.add('visible');
+        const local = clientId === cursorClientId;
+        cursorPainter.paint(clientId, username, x, y, local);
+        forwardCursorToFrame({ type: 'show', client: clientId, username, point, local });
 
-        if (clientId === cursorClientId) return;
+        if (local) return;
         const oldTimer = cursorStaleTimers.get(clientId);
         if (oldTimer) clearTimeout(oldTimer);
         cursorStaleTimers.set(clientId, setTimeout(() => {
@@ -1568,7 +1708,7 @@
             cursorCaptureOverlay = document.createElement('div');
             cursorCaptureOverlay.className = 'gowo-cursor-capture';
             cursorCaptureOverlay.setAttribute('aria-hidden', 'true');
-            document.body.append(cursorCaptureOverlay);
+            cursorPainter.host().append(cursorCaptureOverlay);
         }
         syncCursorCaptureOverlay();
     }
@@ -1684,7 +1824,7 @@
             if (cursorSocket !== socket) return;
             cursorRelayJoined = false;
             cursorSocket = null;
-            Array.from(cursorElements.keys())
+            cursorPainter.clients()
                 .filter(clientId => clientId !== cursorClientId)
                 .forEach(removeCursor);
             scheduleCursorRelayReconnect();
@@ -1775,8 +1915,16 @@
 
     window.addEventListener('blur', stopCursorDrawing);
     window.addEventListener('resize', () => {
-        clearCursorTrails();
+        cursorPainter.clearTrails();
         syncCursorCaptureOverlay();
+    });
+    // Elements live inside the fullscreen element; start afresh when it changes.
+    document.addEventListener('fullscreenchange', () => {
+        cursorPainter.clear();
+        forwardCursorToFrame({ type: 'clear' });
+        cursorCaptureOverlay?.remove();
+        cursorCaptureOverlay = null;
+        if (cursorHolding) showCursorCaptureOverlay();
     });
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState !== 'visible') stopCursorDrawing();
@@ -2697,77 +2845,7 @@
             pointer-events: auto;
             touch-action: none;
         }
-        .gowo-shared-cursor {
-            --gowo-user-color: #fff;
-            position: fixed;
-            z-index: 25000;
-            width: 1px;
-            height: 1px;
-            opacity: 0;
-            pointer-events: none;
-            transform: translate(-2px, -2px);
-            transition: left 45ms linear, top 45ms linear,
-                opacity 100ms ease;
-        }
-        .gowo-shared-cursor.local {
-            transition: opacity 100ms ease;
-        }
-        .gowo-shared-cursor.visible { opacity: 1; }
-        .gowo-shared-cursor-trail {
-            --gowo-user-color: #fff;
-            position: fixed;
-            inset: 0;
-            z-index: 24999;
-            width: 100vw;
-            height: 100vh;
-            overflow: visible;
-            pointer-events: none;
-        }
-        .gowo-shared-cursor-trail-line {
-            fill: none;
-            stroke: var(--gowo-user-color);
-            stroke-width: 3.5;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-            vector-effect: non-scaling-stroke;
-            filter: drop-shadow(0 0 2px #000)
-                drop-shadow(0 0 4px var(--gowo-user-color))
-                drop-shadow(0 0 8px var(--gowo-user-color));
-        }
-        .gowo-shared-cursor-arrow {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 20px;
-            height: 28px;
-            overflow: visible;
-            filter: drop-shadow(0 0 2px #000)
-                drop-shadow(0 0 4px var(--gowo-user-color))
-                drop-shadow(0 0 9px var(--gowo-user-color));
-        }
-        .gowo-shared-cursor-arrow path {
-            fill: #fff;
-            stroke: #050505;
-            stroke-width: 1.5;
-            stroke-linejoin: round;
-        }
-        .gowo-shared-cursor-name {
-            position: absolute;
-            left: 17px;
-            top: 19px;
-            max-width: 10rem;
-            padding: 0.16rem 0.42rem;
-            overflow: hidden;
-            border: 1px solid var(--gowo-user-color);
-            border-radius: 999px;
-            background: rgba(0, 0, 0, 0.78);
-            box-shadow: 0 0 10px var(--gowo-user-color);
-            color: var(--gowo-user-color);
-            font: 700 0.65rem/1.25 system-ui, sans-serif;
-            text-overflow: ellipsis;
-            text-shadow: 0 1px 2px #000;
-            white-space: nowrap;
-        }
+        ${sharedCursorCSS}
 
         .gowo-chat-emote {
             display: inline-block;

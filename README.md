@@ -51,6 +51,8 @@ Hold `Ctrl` and move the pointer over the video to draw. Release `Ctrl`, switch 
 or move away from the player to clear the cursor and its trail. It also works
 while the chat box is focused; pressing another key with `Ctrl` (such as
 `Ctrl+C` or `Ctrl+V`) is treated as a shortcut and ends the stroke.
+Cursors also show while the player is fullscreen: the room page forwards them
+into the player frame, which repaints them there.
 
 Cursor packets use a small, stateless relay so they never appear as chat
 messages. The relay receives only a one-way hash of the Gowo room alias, a

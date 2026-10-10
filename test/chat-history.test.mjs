@@ -511,12 +511,15 @@ test('the typing notice reads "<name> печатает..." and keeps it while sl
     const h = harness({ html: composerChat('') });
     await h.settle();
     const notice = h.document.querySelector('.writing-message');
-    assert.equal(notice.dataset.gowoTyping, 'Полина Гончарова печатает...');
+    assert.equal(notice.dataset.gowoTyping, 'Полина печатает...');
     assert.ok(notice.classList.contains('gowo-typing-active'));
     notice.textContent = '';
     h.apply();
     assert.equal(notice.classList.contains('gowo-typing-active'), false);
-    assert.equal(notice.dataset.gowoTyping, 'Полина Гончарова печатает...');
+    assert.equal(notice.dataset.gowoTyping, 'Полина печатает...');
+    notice.textContent = 'Полина Гончарова, Руслан Эммм печатают сообщение';
+    h.apply();
+    assert.equal(notice.dataset.gowoTyping, 'Полина, Руслан печатают...');
 });
 
 test('the page hook adds a queued quote to the next socket message only', () => {

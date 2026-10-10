@@ -2411,7 +2411,10 @@
         if (!notice) return;
         const text = notice.textContent.replace(/\s+/g, ' ').trim();
         if (text) {
-            const short = text.replace(/(печата(?:ет|ют))[\s\S]*$/, '$1...');
+            // First names only, as in the chat itself; several typers stay listed.
+            const short = text.replace(/^(.*?)\s*(печата(?:ет|ют))[\s\S]*$/, (match, names, verb) =>
+                `${names.split(/\s*,\s*|\s+и\s+/).map(name => name.trim().split(' ')[0])
+                    .filter(Boolean).join(', ')} ${verb}...`.trim());
             if (notice.dataset.gowoTyping !== short) notice.dataset.gowoTyping = short;
             if (!notice.classList.contains('gowo-typing-active')) {
                 // Commit the collapsed style first so a fresh node also slides in.

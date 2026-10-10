@@ -1466,6 +1466,19 @@
     let cursorRoomKey = '';
     let cursorRelayStarted = false;
     let cursorRelayJoined = false;
+    let cursorJoinSent = false;
+    // Temporary diagnostics: counters only, ignored by the relay.
+    const cursorDebug = { rx: 0, nonText: 0, badJson: 0, stale: 0, strokes: 0, shown: 0 };
+    function sendCursorDebug(event) {
+        if (!cursorJoinSent || cursorSocket?.readyState !== WebSocket.OPEN) return;
+        try {
+            cursorSocket.send(JSON.stringify({
+                type: 'debug', event, joined: cursorRelayJoined, ...cursorDebug,
+                surface: getCursorSurface()?.tagName || null,
+                fullscreen: document.fullscreenElement?.tagName || null
+            }));
+        } catch {}
+    }
     let cursorReconnectTimer = null;
     let cursorReconnectDelay = 1000;
     let cursorHolding = false;
@@ -1638,7 +1651,9 @@
     }
 
     function sendCursorPacket(point = null) {
-        if (!cursorRelayJoined || cursorSocket?.readyState !== WebSocket.OPEN) {
+        // The join is sent as soon as the socket opens and the relay handles
+        // messages in order, so do not wait for its "joined" reply to arrive.
+        if (!cursorJoinSent || cursorSocket?.readyState !== WebSocket.OPEN) {
             return;
         }
         const visible = Boolean(point);
@@ -1740,6 +1755,8 @@
         pauseOwnCursor();
         cursorHolding = true;
         showCursorCaptureOverlay();
+        cursorDebug.strokes++;
+        sendCursorDebug('stroke');
     }
 
     function stopCursorDrawing() {
@@ -1770,6 +1787,7 @@
             x < 0 || x > 1 || y < 0 || y > 1) {
             return;
         }
+        if (cursorDebug.shown++ % 100 === 0) sendCursorDebug('showing');
         showCursor(
             message.client,
             String(message.username || 'Anonymous').slice(0, 40),
@@ -1793,6 +1811,7 @@
             return;
         }
         cursorRelayJoined = false;
+        cursorJoinSent = false;
         const socket = new WebSocket(cursorRelayUrl);
         cursorSocket = socket;
 
@@ -1805,13 +1824,21 @@
                 client: cursorClientId,
                 username: cursorNickname()
             }));
+            cursorJoinSent = true;
+            setTimeout(() => sendCursorDebug('after-join'), 3000);
         });
         socket.addEventListener('message', event => {
-            if (cursorSocket !== socket) return;
+            if (cursorSocket !== socket) {
+                cursorDebug.stale++;
+                return;
+            }
+            cursorDebug.rx++;
+            if (typeof event.data !== 'string') cursorDebug.nonText++;
             let message;
             try {
                 message = JSON.parse(event.data);
             } catch {
+                cursorDebug.badJson++;
                 return;
             }
             if (message?.type === 'joined') {

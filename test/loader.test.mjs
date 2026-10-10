@@ -198,6 +198,24 @@ test('the actual runtime loads the player bridge and still sends fresh cursor po
     assert.equal(cursorMessages[1][1], 'https://gowo.io');
 });
 
+test('Ctrl draws from a focused text field, and a Ctrl shortcut ends the stroke', async () => {
+    const h = harness({ frame: true });
+    h.respond(runtime);
+    await flush();
+    let prevented = 0;
+    h.events.get('keydown')({
+        key: 'Control', code: 'ControlLeft', ctrlKey: true,
+        target: { tagName: 'TEXTAREA' }, preventDefault() { prevented++; }
+    });
+    h.events.get('mousemove')({ clientX: 250, clientY: 125 });
+    h.events.get('keydown')({ key: 'v', code: 'KeyV', ctrlKey: true, target: { tagName: 'TEXTAREA' }, preventDefault() {} });
+    h.events.get('mousemove')({ clientX: 300, clientY: 125 });
+    const types = h.messages.filter(([message]) => message.source === 'gowo-plus-cursor-bridge-v1')
+        .map(([message]) => message.type);
+    assert.deepEqual(types, ['start', 'move', 'stop']);
+    assert.equal(prevented, 0);
+});
+
 for (const cached of ['', oldSource]) {
     test(`Safari responseURL and async storage start and cache the runtime (${cached ? 'upgrade' : 'install'})`, async () => {
         const h = harness({ safari: true, cached });

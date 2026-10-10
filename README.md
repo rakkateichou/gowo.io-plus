@@ -48,8 +48,9 @@ load where the 7TV CDN is unreachable; 7TV is only used as a fallback.
 ## Shared cursor drawing
 
 Hold `Ctrl` and move the pointer over the video to draw. Release `Ctrl`, switch tabs,
-or move away from the player to clear the cursor and its trail. The shortcut is
-ignored while typing in a text field.
+or move away from the player to clear the cursor and its trail. It also works
+while the chat box is focused; pressing another key with `Ctrl` (such as
+`Ctrl+C` or `Ctrl+V`) is treated as a shortcut and ends the stroke.
 
 Cursor packets use a small, stateless relay so they never appear as chat
 messages. The relay receives only a one-way hash of the Gowo room alias, a

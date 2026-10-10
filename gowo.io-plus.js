@@ -244,12 +244,14 @@
         }, true);
 
         document.addEventListener('keydown', event => {
-            if (!isCursorDrawKey(event) || event.repeat || holding ||
-                event.metaKey || event.altKey ||
-                isEditableElement(event.target)) {
+            if (!isCursorDrawKey(event)) {
+                // Ctrl+C, Ctrl+V and other shortcuts are not drawing.
+                if (event.ctrlKey && holding) stop();
                 return;
             }
-            event.preventDefault();
+            if (event.repeat || holding || event.metaKey || event.altKey) return;
+            // Text fields keep the key, where it only begins a shortcut.
+            if (!isEditableElement(event.target)) event.preventDefault();
             holding = true;
             // The last mousemove can predate the key press by several seconds.
             // Start an empty stroke and let the first live move set its origin.
@@ -1710,11 +1712,14 @@
     }
 
     document.addEventListener('keydown', event => {
-        if (!isCursorDrawKey(event) || event.repeat || cursorHolding ||
-            event.metaKey || event.altKey || isEditableElement(event.target)) {
+        if (!isCursorDrawKey(event)) {
+            // Ctrl+C, Ctrl+V and other shortcuts are not drawing.
+            if (event.ctrlKey && cursorHolding) stopCursorDrawing();
             return;
         }
-        event.preventDefault();
+        if (event.repeat || cursorHolding || event.metaKey || event.altKey) return;
+        // Text fields keep the key, where it only begins a shortcut.
+        if (!isEditableElement(event.target)) event.preventDefault();
         // The capture layer's first live mousemove establishes the stroke.
         startCursorDrawing();
     }, true);

@@ -8,6 +8,7 @@ A userscript for Tampermonkey and Safari Userscripts that enhances Gowo.io rooms
 - Consistent nickname colours and compact consecutive messages
 - Local receive/send time shown when hovering over a live chat message
 - Up to 1,000 locally saved messages per room, restored at the newest message after reload
+- Messages sent while you were away, caught up from the Gowo.io+ relay when you return
 - Reply text always starts below its quoted message
 - First-name-only quoted authors, using their chat nickname colour
 - Simple, uncircled chat-header icons with the original controls and tooltips
@@ -54,13 +55,14 @@ while the chat box is focused; pressing another key with `Ctrl` (such as
 Cursors also show while the player is fullscreen: the room page forwards them
 into the player frame, which repaints them there.
 
-Cursor packets use a small, stateless relay (`relay/`, served at
+Cursor packets use a small relay (`relay/`, served at
 `wss://ru.rkde.su/gowo-plugin`; the systemd unit and Caddy site are in
 `relay/deploy/`) so they never appear as chat
-messages. The relay receives only a one-way hash of the Gowo room alias, a
-display name, a random per-tab client ID, and normalized pointer coordinates.
-It does not receive the Gowo login token and stores no cursor history. Other
-viewers need Gowo.io+ installed to see the drawing.
+messages. For cursors the relay receives only a one-way hash of the Gowo room
+alias, a display name, a random per-tab client ID, and normalized pointer
+coordinates. It does not receive the Gowo login token and stores no cursor
+history. Other viewers need Gowo.io+ installed to see the drawing. The same
+relay keeps the shared chat history described below.
 
 ## Player toolbar
 
@@ -83,7 +85,32 @@ for each room (switching players does not create another history). The newest
 1,000 messages per room survive reloads, including names, quotes, 7TV tokens,
 safe links, and Gowo's Giphy GIFs. Matching native message IDs are not duplicated.
 Restored messages are a read-only local archive, not messages sent back to Gowo.
-Hover times are when this browser first saw the message, not server send times.
+
+## Shared chat history
+
+Gowo itself only replays a room's most recent messages. To fill the gap, every
+Gowo.io+ user in a room reports the chat messages it sees to the relay, which
+keeps the newest 2,000 per room. When you open the room again, your browser
+asks for everything since its last visit and adds it to the saved history
+above. Sending still goes through Gowo only.
+
+- **Times.** The relay stamps a message when the first participant reports it,
+  so everyone sees the same hover time. A message nobody running Gowo.io+
+  witnessed live has no known time; it is placed in chat order and its hover
+  time is marked `≈`.
+- **Deletions.** A message deleted in Gowo while a Gowo.io+ user is watching is
+  also removed from the relay and from other users' saved history.
+- **What is stored.** For each message: Gowo's message ID, the author's display
+  name and crown, the text (as plain text, links and Giphy images, never
+  markup) and the quoted message. Rooms are identified only by a one-way hash
+  of the room alias. No login token and no account ID is sent.
+- **Who can read it.** The relay has no accounts: anyone who knows a room's
+  link can read that room's stored history, as they could read the room's chat
+  by opening it. Whoever reports a message first decides the stored copy, so
+  treat the shared history as a convenience among people you trust, not as
+  a record.
+- **Without the relay** nothing else changes: messages are still saved locally
+  as before, with this browser's own first-seen times.
 
 Chat opens at the newest messages after reload and stays there as images and
 layout finish loading. Scrolling up stops that behaviour; reaching the bottom
@@ -94,13 +121,13 @@ clears that room's saved copy after confirmation. It does not delete native live
 messages or anybody else's chat. Existing visible messages are not immediately
 re-saved after clearing; newly arriving messages start a fresh history.
 
-The archive is local to this browser profile and Gowo origin, not synced to
-GitHub, the cursor relay, or other devices. Clearing Gowo's site data also clears
-it; private browsing or unavailable/full storage can prevent persistence, which
-is reported in the settings panel. It cannot recover messages lost before this
-feature was installed or messages received while the room was closed. Observed
-native deletions are removed from the archive; deletions missed while offline
-cannot be synchronized retroactively.
+The saved archive lives in this browser profile and Gowo origin. Clearing it
+there does not clear the relay's copy or anyone else's, and messages you cleared
+are not downloaded again. Clearing Gowo's site data also clears it; private
+browsing or unavailable/full storage can prevent persistence, which is reported
+in the settings panel. Messages from before this feature was installed are not
+recovered. Messages sent while the room was closed are caught up from the relay
+if another Gowo.io+ user was in the room, or if Gowo still replays them.
 
 ## Install
 

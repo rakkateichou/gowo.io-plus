@@ -4,9 +4,11 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/node /opt/gowo-plugin-relay/server.mjs
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning /opt/gowo-plugin-relay/server.mjs
 Environment=HOST=127.0.0.1 PORT=3000 NODE_ENV=production
 DynamicUser=yes
+# Chat history: /var/lib/gowo-plugin-relay/relay.sqlite
+StateDirectory=gowo-plugin-relay
 Restart=always
 RestartSec=2
 MemoryMax=160M

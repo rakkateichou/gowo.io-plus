@@ -10,6 +10,8 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    volumes:
+      - relay-data:/data
     networks:
       - caddy_mesh
     logging:
@@ -21,3 +23,6 @@ services:
 networks:
   caddy_mesh:
     external: true
+
+volumes:
+  relay-data:

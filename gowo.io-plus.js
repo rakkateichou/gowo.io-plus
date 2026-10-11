@@ -1467,6 +1467,7 @@
     let cursorRelayStarted = false;
     let cursorRelayJoined = false;
     let cursorJoinSent = false;
+    let cursorRoomAlias = '';
     // Temporary diagnostics: counters only, ignored by the relay.
     const cursorDebug = { rx: 0, nonText: 0, badJson: 0, stale: 0, strokes: 0, shown: 0 };
     function sendCursorDebug(event) {
@@ -1812,6 +1813,7 @@
         }
         cursorRelayJoined = false;
         cursorJoinSent = false;
+        resetChatSync();
         const socket = new WebSocket(cursorRelayUrl);
         cursorSocket = socket;
 
@@ -1825,6 +1827,7 @@
                 username: cursorNickname()
             }));
             cursorJoinSent = true;
+            requestChatSync();
             setTimeout(() => sendCursorDebug('after-join'), 3000);
         });
         socket.addEventListener('message', event => {
@@ -1843,6 +1846,10 @@
             }
             if (message?.type === 'joined') {
                 cursorRelayJoined = true;
+                return;
+            }
+            if (message?.type === 'history') {
+                applyChatSyncRows(message);
                 return;
             }
             handleCursorRelayMessage(event);
@@ -1872,6 +1879,7 @@
                 loadCursorIdentity()
             ]);
             cursorRoomKey = roomKey;
+            cursorRoomAlias = alias;
             connectCursorRelay();
         } catch {
             cursorRelayStarted = false;
@@ -2056,6 +2064,10 @@
                     !Number.isFinite(entry.receivedAt) || entry.receivedAt < 0 || entry.receivedAt > 8640000000000000) continue;
                 messages.set(entry.id, {
                     id: entry.id, author: entry.author.slice(0, 200), receivedAt: entry.receivedAt,
+                    // Set once the relay has the message: its revision, and
+                    // whether its shared time is only an estimate.
+                    ...(Number.isSafeInteger(entry.rev) && entry.rev > 0 ? { rev: entry.rev } : {}),
+                    ...(entry.approx === true ? { approx: true } : {}),
                     ...(['owner', 'admin'].includes(entry.crown) ? { crown: entry.crown } : {}),
                     parts: cleanHistoryParts(entry.parts),
                     reply: entry.reply && typeof entry.reply.author === 'string' ? {
@@ -2064,8 +2076,12 @@
                 });
             }
         }
+        const serverRev = value?.room === room && Number.isSafeInteger(value.serverRev) && value.serverRev > 0 ?
+            value.serverRev : 0;
         return {
             room, messages: [...messages.values()],
+            // The last relay revision this browser has caught up to.
+            ...(serverRev ? { serverRev } : {}),
             clearedAt: value?.room === room && Number.isFinite(value.clearedAt) ? value.clearedAt : 0,
             ignoredIds: value?.room === room && Array.isArray(value.ignoredIds) ?
                 value.ignoredIds.filter(isHistoryMessageId).slice(-2000) : []
@@ -2309,12 +2325,16 @@
         focusChatComposer();
     }
 
+    // "≈" marks a time nobody witnessed: the relay only knows the message's place.
+    const historyTimeLabel = entry =>
+        `${entry.approx ? '≈ ' : ''}${new Date(entry.receivedAt).toLocaleString()}`;
+
     function renderChatHistory(room) {
         if (chatHistoryRoom !== room || !room.list?.isConnected || !room.loaded) return;
         const savedById = new Map(room.data.messages.map(entry => [entry.id, entry]));
         const nativeIds = new Set([...room.list.querySelectorAll('.message[id]')].map(element => {
             const saved = savedById.get(element.id);
-            if (saved) element.dataset.gowoMessageTime = new Date(saved.receivedAt).toLocaleString();
+            if (saved) element.dataset.gowoMessageTime = historyTimeLabel(saved);
             return element.id;
         }));
         const missing = room.data.messages.filter(entry => !nativeIds.has(entry.id) && !room.deleted.has(entry.id));
@@ -2333,7 +2353,7 @@
             message.dataset.formatted = '1';
             message.dataset.gowoHistoryId = entry.id;
             messageAuthors.set(message, { id: message.id, author: entry.author });
-            message.dataset.gowoMessageTime = new Date(entry.receivedAt).toLocaleString();
+            message.dataset.gowoMessageTime = historyTimeLabel(entry);
             const user = document.createElement('div');
             user.className = 'user';
             const text = document.createElement('div');
@@ -2408,7 +2428,11 @@
                 for (const entry of pending) {
                     if (ignored.has(entry.id) || entry.receivedAt <= stored.clearedAt) continue;
                     const previous = messages.get(entry.id);
-                    messages.set(entry.id, { ...entry, receivedAt: previous?.receivedAt ?? entry.receivedAt });
+                    messages.set(entry.id, {
+                        ...entry, receivedAt: previous?.receivedAt ?? entry.receivedAt,
+                        ...(previous?.rev ? { rev: previous.rev } : {}),
+                        ...(previous?.approx ? { approx: true } : {})
+                    });
                 }
                 stored.messages = [...messages.values()].sort((a, b) => a.receivedAt - b.receivedAt).slice(-chatHistoryLimit);
                 stored.ignoredIds = [...ignored].slice(-2000);
@@ -2428,6 +2452,7 @@
     }
 
     function captureChatMessages(room) {
+        const fresh = [];
         for (const element of room.list.querySelectorAll('.message[id]')) {
             const body = element.querySelector('.text > .w-100');
             if (!element.querySelector(':scope > .user') || !body || !isHistoryMessageId(element.id)) continue;
@@ -2453,10 +2478,18 @@
                 } : null
             };
             if (JSON.stringify(previous) === JSON.stringify(entry)) continue;
+            if (previous?.id !== element.id) fresh.push({ element, entry });
             chatHistoryNodes.set(element, entry);
             room.pending.set(entry.id, entry);
             if (room.pending.size > chatHistoryLimit) room.pending.delete(room.pending.keys().next().value);
         }
+        if (!fresh.length) return;
+        // Gowo replays recent messages in one burst after joining. Later
+        // arrivals, a few at a time, were witnessed as they were sent.
+        const live = room.captured ? fresh.length <= 3 :
+            fresh.length === 1 && Date.now() - room.listSeenAt >= 5000;
+        room.captured = true;
+        for (const { element, entry } of fresh) queueChatSyncReport(room, element, entry, live);
     }
 
     async function loadChatHistory(room) {
@@ -2466,6 +2499,7 @@
             if (chatHistoryRoom !== room) return;
             renderChatHistory(room);
             flushChatHistory(room);
+            requestChatSync();
         } catch { room.failed = true; }
         if (chatHistoryRoom === room) injectChatHistorySetting();
     }
@@ -2496,9 +2530,168 @@
         if (deletedNotices && removed.size === deletedNotices) {
             for (const id of removed) room.deleted.add(id);
         }
-        for (const id of room.deleted) room.pending.delete(id);
+        for (const id of room.deleted) {
+            room.pending.delete(id);
+            queueChatSyncGone(room, id);
+        }
         if (room.data && room.deleted.size) {
             room.data.messages = room.data.messages.filter(entry => !room.deleted.has(entry.id));
+        }
+    }
+
+    // Shared history: the relay keeps each room's messages. Every participant
+    // reports what it sees, and whoever was away asks for everything after the
+    // last revision it has. Gowo remains the only way a message is sent.
+    const chatSyncIdLimit = 1024;
+    const chatSyncSendIntervalMs = 120;
+    const chatSync = {
+        requested: false, ready: false, timer: null,
+        known: new Set(), queue: new Map(), sent: new Map(), gone: new Map(), goneSeen: new Set()
+    };
+
+    function chatSyncRoom() {
+        const room = chatHistoryRoom;
+        return cursorJoinSent && room?.loaded && !room.failed && room.alias === cursorRoomAlias &&
+            cursorSocket?.readyState === WebSocket.OPEN ? room : null;
+    }
+
+    // A new connection starts over; reports the relay never answered go again.
+    function resetChatSync() {
+        chatSync.requested = false;
+        chatSync.ready = false;
+        for (const [id, item] of chatSync.sent) {
+            if (!chatSync.known.has(id)) chatSync.queue.set(id, item);
+        }
+        chatSync.sent.clear();
+    }
+
+    function requestChatSync() {
+        const room = chatSyncRoom();
+        if (!room || chatSync.requested) return;
+        chatSync.requested = true;
+        for (const entry of room.data.messages) {
+            if (entry.rev) chatSync.known.add(entry.id);
+        }
+        cursorSocket.send(JSON.stringify({ type: 'sync', after: room.data.serverRev || 0 }));
+    }
+
+    function queueChatSyncReport(room, element, entry, live) {
+        if (entry.id.length > chatSyncIdLimit || chatSync.known.has(entry.id) ||
+            chatSync.queue.has(entry.id) || chatSync.sent.has(entry.id)) return;
+        chatSync.queue.set(entry.id, { alias: room.alias, element, entry, live });
+        // Bounded while the relay is unreachable.
+        if (chatSync.queue.size > 300) chatSync.queue.delete(chatSync.queue.keys().next().value);
+        pumpChatSync();
+    }
+
+    function queueChatSyncGone(room, id) {
+        if (id.length > chatSyncIdLimit || chatSync.goneSeen.has(id)) return;
+        chatSync.goneSeen.add(id);
+        chatSync.gone.set(id, room.alias);
+        if (chatSync.gone.size > 300) chatSync.gone.delete(chatSync.gone.keys().next().value);
+        pumpChatSync();
+    }
+
+    function nextChatSyncPacket(room) {
+        for (const [id, alias] of chatSync.gone) {
+            chatSync.gone.delete(id);
+            if (alias === room.alias) return { type: 'gone', id };
+        }
+        while (chatSync.queue.size) {
+            const items = [...chatSync.queue.values()];
+            // Replayed messages go newest first, so the relay can place each
+            // one just before a successor it already knows.
+            const item = items.findLast(candidate => !candidate.live) || items[0];
+            chatSync.queue.delete(item.entry.id);
+            if (item.alias !== room.alias || chatSync.known.has(item.entry.id)) continue;
+            chatSync.sent.set(item.entry.id, item);
+            const saved = room.data.messages.find(entry => entry.id === item.entry.id);
+            let next = item.element.nextElementSibling;
+            while (next && chatHistoryNodes.get(next)?.id !== next.id) next = next.nextElementSibling;
+            const { receivedAt, ...message } = item.entry;
+            return {
+                type: 'seen', live: item.live,
+                // How long ago this browser first saw it, free of clock differences.
+                age: Math.max(0, Date.now() - (saved?.receivedAt ?? receivedAt)),
+                ...(next ? { next: next.id } : {}),
+                message
+            };
+        }
+        return null;
+    }
+
+    function pumpChatSync() {
+        if (chatSync.timer || !chatSync.ready) return;
+        const room = chatSyncRoom();
+        const packet = room && nextChatSyncPacket(room);
+        if (!packet) return;
+        cursorSocket.send(JSON.stringify(packet));
+        // Stay far below the relay's rate limit, which cursor packets share.
+        chatSync.timer = setTimeout(() => {
+            chatSync.timer = null;
+            pumpChatSync();
+        }, chatSyncSendIntervalMs);
+    }
+
+    async function applyChatSyncRows(message) {
+        const room = chatHistoryRoom;
+        if (!room?.loaded || room.failed || room.alias !== cursorRoomAlias ||
+            !Array.isArray(message.messages)) return;
+        const rows = message.messages.slice(0, 200).filter(row => row && isHistoryMessageId(row.id) &&
+            Number.isSafeInteger(row.rev) && row.rev > 0 && Number.isFinite(row.at));
+        const page = message.page === true;
+        const through = page && Number.isSafeInteger(message.through) ? message.through : 0;
+        // A relay whose numbering is behind ours has lost its store: start over.
+        const reset = page && Number.isSafeInteger(message.rev) && message.rev < (room.data.serverRev || 0);
+        if (reset) chatSync.known.clear();
+        for (const row of rows) {
+            chatSync.known.add(row.id);
+            chatSync.queue.delete(row.id);
+            chatSync.sent.delete(row.id);
+        }
+        // Until the first catch-up ends, single rows may run ahead of it.
+        const inOrder = chatSync.ready && !page;
+        try {
+            room.data = await historyTransaction(room.alias, stored => {
+                const messages = new Map(stored.messages.map(entry => [entry.id, entry]));
+                const ignored = new Set(stored.ignoredIds);
+                let serverRev = reset ? 0 : stored.serverRev || 0;
+                if (reset) messages.forEach(entry => delete entry.rev);
+                for (const row of rows) {
+                    if (inOrder) serverRev = Math.max(serverRev, row.rev);
+                    if (row.deleted === true) {
+                        messages.delete(row.id);
+                        continue;
+                    }
+                    const local = messages.get(row.id);
+                    if (!local && (ignored.has(row.id) || row.at <= stored.clearedAt)) continue;
+                    // This browser's own first sight beats a time the relay guessed.
+                    const keepLocalTime = Boolean(local) && row.approx === true;
+                    messages.set(row.id, {
+                        ...(local || { id: row.id, author: row.author, crown: row.crown, parts: row.parts, reply: row.reply }),
+                        receivedAt: keepLocalTime ? local.receivedAt : row.at,
+                        approx: keepLocalTime ? local.approx : row.approx === true,
+                        rev: row.rev
+                    });
+                }
+                if (page && !reset) serverRev = Math.max(serverRev, through);
+                stored.messages = [...messages.values()].sort((a, b) => a.receivedAt - b.receivedAt).slice(-chatHistoryLimit);
+                stored.serverRev = serverRev;
+                return cleanHistoryRoom(stored, room.alias);
+            });
+            chatHistoryChannel?.postMessage({ room: room.alias });
+        } catch {
+            room.failed = true;
+        }
+        if (chatHistoryRoom !== room) return;
+        renderChatHistory(room);
+        injectChatHistorySetting();
+        if (!page || !chatSyncRoom()) return;
+        if (reset || message.more === true) {
+            cursorSocket.send(JSON.stringify({ type: 'sync', after: room.data.serverRev || 0 }));
+        } else {
+            chatSync.ready = true;
+            pumpChatSync();
         }
     }
 
@@ -2520,6 +2713,8 @@
         if (room.list !== list) {
             room.archive?.remove();
             room.list = list;
+            room.listSeenAt = Date.now();
+            room.captured = false;
             room.archive = null;
             syncChatScroll(wrapper, list);
         }
@@ -2561,6 +2756,7 @@
                     const visibleIds = [...current.list.querySelectorAll('.message[id]')].map(element => element.id);
                     current.data = await historyTransaction(current.alias, stored => ({
                         room: current.alias, messages: [], clearedAt: Date.now(),
+                        ...(stored.serverRev ? { serverRev: stored.serverRev } : {}),
                         ignoredIds: [...new Set([...stored.ignoredIds, ...stored.messages.map(entry => entry.id), ...visibleIds])].slice(-2000)
                     }));
                     current.pending.clear();
@@ -2577,7 +2773,7 @@
         const count = room.data?.messages.length || 0;
         const text = room.failed ? 'Хранилище недоступно — история не сохраняется.' :
             room.clearing ? 'Удаление…' : !room.loaded ? 'Загрузка истории…' :
-                `Сохранено: ${count} / ${chatHistoryLimit}. Только в этом браузере.`;
+                `Сохранено: ${count} / ${chatHistoryLimit} в этом браузере. Новые сообщения также хранит сервер Gowo.io+.`;
         const status = section.querySelector('.gowo-history-status');
         if (status.textContent !== text) status.textContent = text;
         section.querySelector('button').disabled = !room.loaded || room.clearing || !count;

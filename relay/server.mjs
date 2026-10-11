@@ -1,18 +1,71 @@
 import http from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
+import { createMessageStore } from './store.mjs';
 
 const roomPattern = /^[a-f0-9]{64}$/;
 const clientPattern = /^[a-f0-9]{32}$/;
 const maxClients = 1000;
 const maxClientsPerRoom = 64;
-const maxMessagesPerSecond = 30;
+const maxMessagesPerSecond = 60;
+const maxPayload = 32 * 1024;
+const messageIdLimit = 1024;
 
 function cleanName(value) {
     return String(value || 'Anonymous')
         .replace(/[\u0000-\u001f\u007f]/g, '')
         .trim()
         .slice(0, 40) || 'Anonymous';
+}
+
+function cleanText(value, limit) {
+    return String(value ?? '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').slice(0, limit);
+}
+
+function cleanUrl(value, image) {
+    if (typeof value !== 'string' || value.length > 2048) return '';
+    try {
+        const url = new URL(value);
+        if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) return '';
+        // Clients only ever load images from the GIF source Gowo itself uses.
+        if (image && (url.protocol !== 'https:' ||
+            !(url.hostname === 'giphy.com' || url.hostname.endsWith('.giphy.com')))) return '';
+        return url.href;
+    } catch {
+        return '';
+    }
+}
+
+// Messages are stored as plain text, link and image parts, never as markup.
+function cleanParts(parts) {
+    if (!Array.isArray(parts)) return [];
+    let remaining = 4000;
+    return parts.slice(0, 128).flatMap(part => {
+        if (!part || typeof part.text !== 'string' || remaining <= 0) return [];
+        const text = cleanText(part.text, remaining);
+        remaining -= text.length;
+        if (part.type === 'text') return [{ type: 'text', text }];
+        if (part.type !== 'link' && part.type !== 'image') return [];
+        const url = cleanUrl(part.url, part.type === 'image');
+        return url ? [{ type: part.type, text, url }] : [{ type: 'text', text }];
+    });
+}
+
+function cleanChatMessage(value) {
+    if (!value || typeof value.id !== 'string' || !value.id ||
+        value.id.length > messageIdLimit || typeof value.author !== 'string') return null;
+    const author = cleanText(value.author, 200).trim();
+    if (!author) return null;
+    return {
+        id: value.id,
+        author,
+        ...(value.crown === 'owner' || value.crown === 'admin' ? { crown: value.crown } : {}),
+        parts: cleanParts(value.parts),
+        reply: value.reply && typeof value.reply.author === 'string' ? {
+            author: cleanText(value.reply.author, 200).trim(),
+            parts: cleanParts(value.reply.parts)
+        } : null
+    };
 }
 
 function send(socket, payload) {
@@ -25,6 +78,7 @@ export function createPluginRelay(options = {}) {
     const allowedOrigins = new Set(
         options.allowedOrigins || ['https://gowo.io']
     );
+    const store = createMessageStore(options.databasePath);
     const rooms = new Map();
     const sockets = new Set();
     const server = http.createServer((request, response) => {
@@ -38,7 +92,7 @@ export function createPluginRelay(options = {}) {
     });
     const webSocketServer = new WebSocketServer({
         noServer: true,
-        maxPayload: 2048,
+        maxPayload,
         perMessageDeflate: false
     });
 
@@ -140,7 +194,34 @@ export function createPluginRelay(options = {}) {
                 return;
             }
 
-            if (message?.type !== 'cursor' || !state.room) return;
+            if (!state.room) return;
+            if (message?.type === 'sync') {
+                const after = Number.isSafeInteger(message.after) && message.after > 0 ? message.after : 0;
+                send(socket, { type: 'history', page: true, ...store.since(state.room, after) });
+                return;
+            }
+            if (message?.type === 'seen') {
+                const chatMessage = cleanChatMessage(message.message);
+                const result = chatMessage && store.record(state.room, chatMessage, {
+                    live: message.live === true,
+                    age: Number(message.age),
+                    next: typeof message.next === 'string' ? message.next.slice(0, messageIdLimit) : ''
+                });
+                if (!result) return;
+                const payload = { type: 'history', messages: [result.row] };
+                // Everyone learns the shared time of a new message; a repeat
+                // report only needs its own answer.
+                if (result.created) broadcast(state.room, payload);
+                else send(socket, payload);
+                return;
+            }
+            if (message?.type === 'gone') {
+                const row = typeof message.id === 'string' && message.id.length <= messageIdLimit ?
+                    store.remove(state.room, message.id) : null;
+                if (row) broadcast(state.room, { type: 'history', messages: [row] });
+                return;
+            }
+            if (message?.type !== 'cursor') return;
             const visible = message.visible !== false;
             const payload = {
                 type: 'cursor',
@@ -190,6 +271,7 @@ export function createPluginRelay(options = {}) {
             clearInterval(heartbeat);
             for (const socket of sockets) socket.terminate();
             await new Promise(resolve => server.close(resolve));
+            store.close();
         }
     };
 }
@@ -197,7 +279,11 @@ export function createPluginRelay(options = {}) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     const host = process.env.HOST || '127.0.0.1';
     const port = Number(process.env.PORT || 3000);
-    const relay = createPluginRelay();
+    // With systemd, StateDirectory= provides STATE_DIRECTORY. Without a path
+    // the chat history lives in memory and is lost on restart.
+    const databasePath = process.env.DATABASE_PATH || (process.env.STATE_DIRECTORY ?
+        `${process.env.STATE_DIRECTORY}/relay.sqlite` : ':memory:');
+    const relay = createPluginRelay({ databasePath });
     relay.server.listen(port, host, () => {
         console.log(`Gowo plugin relay listening on ${host}:${port}`);
     });

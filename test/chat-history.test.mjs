@@ -32,10 +32,25 @@ const nativeMessage = (id, formatted = false, omitNickname = false) => `
     </div>
   </div>`;
 
-function harness({ database = new IDBFactory(), room = 'room-a', content = '', html, clock = { now: 1800000000000 } } = {}) {
+function harness({ database = new IDBFactory(), room = 'room-a', content = '', html, clock = { now: 1800000000000 }, relay = false } = {}) {
     const dom = parseHTML(`<!doctype html><html><head></head><body>${html ?? chat(content)}</body></html>`);
     const { document } = dom;
-    const listeners = new Map(), observers = [], resizes = [], frames = [];
+    const listeners = new Map(), observers = [], resizes = [], frames = [], sockets = [], timers = [];
+    // Stands in for the relay connection; tests play the relay's side.
+    class FakeSocket {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        readyState = 0;
+        sent = [];
+        handlers = new Map();
+        constructor(url) { this.url = url; sockets.push(this); }
+        addEventListener(type, handler) { this.handlers.set(type, handler); }
+        send(data) { this.sent.push(JSON.parse(data)); }
+        open() { this.readyState = 1; this.handlers.get('open')({}); }
+        receive(message) { this.handlers.get('message')({ data: JSON.stringify(message) }); }
+        // Chat-sync packets only; cursor diagnostics are not under test here.
+        take() { return this.sent.splice(0).filter(packet => ['join', 'sync', 'seen', 'gone'].includes(packet.type)); }
+    }
     const wrappedStyles = new WeakSet();
     const metrics = { extra: 0 };
     const window = {
@@ -87,7 +102,9 @@ function harness({ database = new IDBFactory(), room = 'room-a', content = '', h
         HTMLDivElement: dom.HTMLDivElement, HTMLIFrameElement: dom.HTMLIFrameElement, CustomEvent: dom.CustomEvent,
         NodeFilter: { SHOW_TEXT: 4 }, localStorage: storage, sessionStorage: storage,
         requestAnimationFrame: callback => { frames.push(callback); return frames.length; },
-        cancelAnimationFrame() {}, setTimeout: () => 1, clearTimeout() {},
+        cancelAnimationFrame() {}, clearTimeout() {},
+        setTimeout: relay ? callback => timers.push(callback) : () => 1,
+        ...(relay ? { WebSocket: FakeSocket } : {}),
         MutationObserver: class {
             constructor(callback) { observers.push(callback); }
             observe() {}
@@ -95,7 +112,8 @@ function harness({ database = new IDBFactory(), room = 'room-a', content = '', h
     });
     vm.runInContext(runtime, context);
     const h = {
-        document, window, database, clock, metrics,
+        document, window, database, clock, metrics, sockets,
+        tick() { for (const callback of timers.splice(0)) callback(); },
         apply(records = []) { setupDom(); for (const callback of observers) callback(records); },
         emit(type, event = {}) { for (const callback of listeners.get(type) || []) callback(event); },
         resize() { for (const callback of resizes) callback(); },
@@ -575,4 +593,152 @@ test('owner and admin crowns are saved and drawn on restored messages, hidden wh
     assert.ok(restored('m2').classList.contains('gowo-consecutive-message'));
     assert.equal(restored('m3').querySelector('.gowo-history-crown'), null);
     assert.equal(restored('m4').querySelector('.gowo-history-crown path').getAttribute('fill'), '#fff');
+});
+
+const serverRow = (id, rev, at, extra = {}) => ({
+    id, rev, at, approx: false, deleted: false, author: 'Друг Другов',
+    parts: [{ type: 'text', text: `server ${id}` }], reply: null, ...extra
+});
+
+test('on joining, the relay supplies missed messages and learns the replayed ones newest first', async () => {
+    const h = harness({ relay: true, content: message('m1', 'old one') + message('m2', 'old two') });
+    await h.settle();
+    const [socket] = h.sockets;
+    assert.equal(socket.url, 'wss://ru.rkde.su/gowo-plugin');
+    socket.open();
+    const [join, sync] = socket.take();
+    assert.equal(join.type, 'join');
+    assert.deepEqual(sync, { type: 'sync', after: 0 });
+
+    const missedAt = h.clock.now - 3600000;
+    socket.receive({ type: 'history', page: true, rev: 1, through: 1, more: false, messages: [serverRow('m0', 1, missedAt)] });
+    await h.settle();
+    const missed = h.document.querySelector('[data-gowo-history-id="m0"]');
+    assert.equal(missed.querySelector('.w-100').textContent, 'server m0');
+    assert.equal(missed.dataset.gowoMessageTime, new Date(missedAt).toLocaleString());
+
+    // Replayed messages: newest first, each naming the message after it.
+    h.tick();
+    assert.deepEqual(socket.take().map(packet => [packet.type, packet.live, packet.message.id, packet.next]), [
+        ['seen', false, 'm2', undefined],
+        ['seen', false, 'm1', 'm2']
+    ]);
+    // The relay could only guess their times, so this browser keeps its own.
+    socket.receive({ type: 'history', messages: [serverRow('m2', 2, 5, { approx: true })] });
+    socket.receive({ type: 'history', messages: [serverRow('m1', 3, 4, { approx: true })] });
+    await h.settle();
+    const data = await stored(h.database);
+    assert.deepEqual(data.messages.map(entry => [entry.id, entry.rev, entry.receivedAt, entry.parts[0].text]), [
+        ['m0', 1, missedAt, 'server m0'],
+        ['m1', 3, h.clock.now, 'old one'],
+        ['m2', 2, h.clock.now, 'old two']
+    ]);
+    assert.equal(data.serverRev, 3);
+});
+
+test('a message witnessed live is reported as live, once, and takes the relay time', async () => {
+    const h = harness({ relay: true, content: message('m1') });
+    await h.settle();
+    const [socket] = h.sockets;
+    socket.open();
+    socket.receive({ type: 'history', page: true, rev: 0, through: 0, more: false, messages: [] });
+    await h.settle();
+    h.tick();
+    socket.take();
+
+    h.clock.now += 60000;
+    h.add('m2', 'just sent', 'Друг Другов');
+    h.tick();
+    const [seen] = socket.take();
+    assert.deepEqual(
+        { type: seen.type, live: seen.live, id: seen.message.id, author: seen.message.author, text: seen.message.parts[0].text },
+        { type: 'seen', live: true, id: 'm2', author: 'Друг Другов', text: 'just sent' }
+    );
+    assert.ok(seen.age >= 0 && seen.age < 1000);
+    assert.equal(seen.message.receivedAt, undefined);
+
+    const sharedAt = h.clock.now - 250;
+    socket.receive({ type: 'history', messages: [serverRow('m2', 2, sharedAt)] });
+    await h.settle();
+    h.tick();
+    assert.deepEqual(socket.take(), [], 'an acknowledged message is not reported again');
+    assert.equal((await stored(h.database)).messages.find(entry => entry.id === 'm2').receivedAt, sharedAt);
+    assert.equal(h.document.getElementById('m2').dataset.gowoMessageTime, new Date(sharedAt).toLocaleString());
+});
+
+test('the next visit asks only for what is new; estimated times are marked and deletions apply', async () => {
+    const first = harness({ relay: true });
+    await first.settle();
+    first.sockets[0].open();
+    const at = first.clock.now - 5000;
+    first.sockets[0].receive({ type: 'history', page: true, rev: 2, through: 2, more: false, messages: [
+        serverRow('m1', 1, at), serverRow('m2', 2, at + 1, { approx: true, crown: 'owner' })
+    ] });
+    await first.settle();
+    assert.equal(first.document.querySelector('[data-gowo-history-id="m2"]').dataset.gowoMessageTime,
+        `≈ ${new Date(at + 1).toLocaleString()}`);
+    assert.ok(first.document.querySelector('[data-gowo-history-id="m2"] .gowo-history-crown'));
+
+    const again = harness({ relay: true, database: first.database });
+    await again.settle();
+    again.sockets[0].open();
+    assert.deepEqual(again.sockets[0].take().at(-1), { type: 'sync', after: 2 });
+    again.sockets[0].receive({ type: 'history', page: true, rev: 3, through: 3, more: false, messages: [
+        { id: 'm1', rev: 3, at, approx: false, deleted: true }
+    ] });
+    await again.settle();
+    assert.equal(again.document.querySelector('[data-gowo-history-id="m1"]'), null);
+    assert.ok(again.document.querySelector('[data-gowo-history-id="m2"]'));
+    const data = await stored(again.database);
+    assert.deepEqual([data.messages.map(entry => entry.id), data.serverRev], [['m2'], 3]);
+});
+
+test('catch-up continues page by page, and a relay that lost its store is synced from scratch', async () => {
+    const h = harness({ relay: true });
+    await h.settle();
+    const [socket] = h.sockets;
+    socket.open();
+    socket.take();
+    socket.receive({ type: 'history', page: true, rev: 150, through: 100, more: true, messages: [serverRow('m1', 100, 1000)] });
+    await h.settle();
+    assert.deepEqual(socket.take(), [{ type: 'sync', after: 100 }]);
+    socket.receive({ type: 'history', page: true, rev: 150, through: 150, more: false, messages: [serverRow('m2', 150, 2000)] });
+    await h.settle();
+    assert.equal((await stored(h.database)).serverRev, 150);
+
+    const later = harness({ relay: true, database: h.database });
+    await later.settle();
+    later.sockets[0].open();
+    assert.deepEqual(later.sockets[0].take().at(-1), { type: 'sync', after: 150 });
+    later.sockets[0].receive({ type: 'history', page: true, rev: 0, through: 150, more: false, messages: [] });
+    await later.settle();
+    assert.deepEqual(later.sockets[0].take(), [{ type: 'sync', after: 0 }]);
+    assert.equal((await stored(later.database)).serverRev, undefined);
+    assert.equal(later.document.querySelectorAll('[data-gowo-history-id]').length, 2, 'the local copy is kept');
+});
+
+test('messages this browser cleared stay cleared, and a native deletion is passed on', async () => {
+    const h = harness({ relay: true, content: message('m1', 'to delete') });
+    await h.settle();
+    const [socket] = h.sockets;
+    socket.open();
+    socket.receive({ type: 'history', page: true, rev: 0, through: 0, more: false, messages: [] });
+    await h.settle();
+    h.tick();
+    socket.take();
+
+    const element = h.document.getElementById('m1');
+    const notice = h.document.createElement('div');
+    notice.className = 'message';
+    notice.innerHTML = '<div><div class="text text-muted">Сообщение удалено</div></div>';
+    element.replaceWith(notice);
+    h.apply([{ target: h.document.querySelector('.messages'), removedNodes: [element], addedNodes: [notice] }]);
+    h.tick();
+    assert.deepEqual(socket.take(), [{ type: 'gone', id: 'm1' }]);
+
+    await h.settle();
+    await stored(h.database, 'room-a', { room: 'room-a', messages: [], clearedAt: h.clock.now, ignoredIds: ['m9'] });
+    socket.receive({ type: 'history', messages: [serverRow('m9', 7, h.clock.now + 5), serverRow('m8', 8, h.clock.now - 5)] });
+    await h.settle();
+    assert.deepEqual((await stored(h.database)).messages, []);
 });

@@ -2421,7 +2421,7 @@
             });
             item.append(replyButton);
             actions.append(item);
-            if (isEditableEntry(entry)) actions.append(editActionItem(entry.id));
+            if (isEditableEntry(entry)) actions.prepend(editActionItem(entry.id));
             message.append(user, actions);
             renderMessageEmotes(message);
             archive.append(message);
@@ -3211,6 +3211,9 @@
         .message.gowo-consecutive-message .header-message > p,
         .message.gowo-consecutive-message app-icon-crown,
         .message.gowo-consecutive-message .gowo-history-crown { display: none!important; }
+        /* With the crown and name hidden, the avatar link is all that is left
+           on the first line: it would hold an empty line above a quoted reply. */
+        app-chat-messages-room .message.gowo-consecutive-message .user > .d-flex > a { display: none; }
         .gowo-history-crown {
             width: 18px; height: 15px; margin-right: 4px;
             vertical-align: -1px;
@@ -3243,8 +3246,8 @@
             display: flex; padding: 0; border: 0; background: transparent; cursor: pointer;
         }
         .gowo-history-actions svg { width: 18px; height: 18px; }
-        .gowo-history-actions li + li { margin-left: 4px; }
-        .message .actions .gowo-edit-action { display: flex; align-items: center; margin-right: 4px; }
+                .message .actions .gowo-edit-action { display: flex; align-items: center; margin-right: 4px; }
+        .message .actions.gowo-history-actions .gowo-edit-action svg { width: 16px; height: 16px; }
         .message .actions .gowo-edit-action svg { width: 16px; height: 16px; }
         .gowo-edited-message .text > .w-100::after {
             content: '(изм.)'; margin-left: 5px; font-size: 10px; color: #8a8a8a; white-space: nowrap;

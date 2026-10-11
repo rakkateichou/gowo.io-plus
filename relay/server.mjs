@@ -21,7 +21,7 @@ function send(socket, payload) {
     }
 }
 
-export function createCursorRelay(options = {}) {
+export function createPluginRelay(options = {}) {
     const allowedOrigins = new Set(
         options.allowedOrigins || ['https://gowo.io']
     );
@@ -68,7 +68,7 @@ export function createCursorRelay(options = {}) {
     server.on('upgrade', (request, socket, head) => {
         const origin = request.headers.origin;
         const path = new URL(request.url || '/', 'http://relay.local').pathname;
-        if (path !== '/gowo-cursor' || !allowedOrigins.has(origin)) {
+        if (path !== '/gowo-plugin' || !allowedOrigins.has(origin)) {
             socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
             socket.destroy();
             return;
@@ -197,9 +197,9 @@ export function createCursorRelay(options = {}) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     const host = process.env.HOST || '127.0.0.1';
     const port = Number(process.env.PORT || 3000);
-    const relay = createCursorRelay();
+    const relay = createPluginRelay();
     relay.server.listen(port, host, () => {
-        console.log(`Gowo cursor relay listening on ${host}:${port}`);
+        console.log(`Gowo plugin relay listening on ${host}:${port}`);
     });
 
     const shutdown = async () => {

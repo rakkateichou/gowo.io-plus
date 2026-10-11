@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import test from 'node:test';
 import { WebSocket } from 'ws';
-import { createCursorRelay } from '../server.mjs';
+import { createPluginRelay } from '../server.mjs';
 
 const room = 'a'.repeat(64);
 const firstClient = '1'.repeat(32);
@@ -21,11 +21,11 @@ function nextJson(socket) {
 }
 
 test('relays cursor packets only to peers in the same room', async () => {
-    const relay = createCursorRelay();
+    const relay = createPluginRelay();
     relay.server.listen(0, '127.0.0.1');
     await once(relay.server, 'listening');
     const { port } = relay.server.address();
-    const url = `ws://127.0.0.1:${port}/gowo-cursor`;
+    const url = `ws://127.0.0.1:${port}/gowo-plugin`;
     const first = new WebSocket(url, { origin: 'https://gowo.io' });
     const second = new WebSocket(url, { origin: 'https://gowo.io' });
 
@@ -59,12 +59,12 @@ test('relays cursor packets only to peers in the same room', async () => {
 });
 
 test('rejects websocket upgrades from other origins', async () => {
-    const relay = createCursorRelay();
+    const relay = createPluginRelay();
     relay.server.listen(0, '127.0.0.1');
     await once(relay.server, 'listening');
     const { port } = relay.server.address();
     const socket = new WebSocket(
-        `ws://127.0.0.1:${port}/gowo-cursor`,
+        `ws://127.0.0.1:${port}/gowo-plugin`,
         { origin: 'https://example.com' }
     );
     const [error] = await once(socket, 'error');

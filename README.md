@@ -54,7 +54,8 @@ while the chat box is focused; pressing another key with `Ctrl` (such as
 Cursors also show while the player is fullscreen: the room page forwards them
 into the player frame, which repaints them there.
 
-Cursor packets use a small, stateless relay so they never appear as chat
+Cursor packets use a small, stateless relay (`relay/`, served at
+`wss://sg.rkde.su/gowo-plugin`) so they never appear as chat
 messages. The relay receives only a one-way hash of the Gowo room alias, a
 display name, a random per-tab client ID, and normalized pointer coordinates.
 It does not receive the Gowo login token and stores no cursor history. Other

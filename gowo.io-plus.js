@@ -798,20 +798,24 @@
             return false;
         }
 
+        setComposerValue(input, nextValue, start + insertion.length);
+        return true;
+    }
+
+    // Angular only notices a value written through the native setter.
+    function setComposerValue(input, value, caret = value.length) {
         const valueSetter = Object.getOwnPropertyDescriptor(
             HTMLTextAreaElement.prototype,
             'value'
         )?.set;
         if (valueSetter) {
-            valueSetter.call(input, nextValue);
+            valueSetter.call(input, value);
         } else {
-            input.value = nextValue;
+            input.value = value;
         }
-        const caret = start + insertion.length;
         input.focus({ preventScroll: true });
         input.setSelectionRange(caret, caret);
         input.dispatchEvent(new Event('input', { bubbles: true }));
-        return true;
     }
 
     function closeEmotePicker() {
@@ -1852,6 +1856,10 @@
                 applyChatSyncRows(message);
                 return;
             }
+            if (message?.type === 'edit-refused') {
+                showChatEditNotice('Не удалось изменить сообщение');
+                return;
+            }
             handleCursorRelayMessage(event);
         });
         socket.addEventListener('close', () => {
@@ -2072,7 +2080,11 @@
                     parts: cleanHistoryParts(entry.parts),
                     reply: entry.reply && typeof entry.reply.author === 'string' ? {
                         author: entry.reply.author.slice(0, 200), parts: cleanHistoryParts(entry.reply.parts)
-                    } : null
+                    } : null,
+                    // Sent from this browser, so it may be edited from here.
+                    ...(entry.mine === true ? { mine: true } : {}),
+                    // When its author last edited it through the relay.
+                    ...(Number.isFinite(entry.edited) && entry.edited > 0 ? { edited: entry.edited } : {})
                 });
             }
         }
@@ -2264,6 +2276,11 @@
         'M9 22H15C20 22 22 20 22 15V9C22 4 20 2 15 2L9 2C4 2 2 4 2 9L2 15C2 20 4 22 9 22Z'
     ], '0 0 24 24', '#fff');
 
+    const historyEditIcon = stroke => historyIcon([
+        'M4 20H8L19 9L15 5L4 16V20Z',
+        'M13 7L17 11'
+    ], '0 0 24 24', stroke);
+
     // Gowo's crown: gold for the room owner, white for admins.
     function historyCrownIcon(kind) {
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -2334,7 +2351,11 @@
         const savedById = new Map(room.data.messages.map(entry => [entry.id, entry]));
         const nativeIds = new Set([...room.list.querySelectorAll('.message[id]')].map(element => {
             const saved = savedById.get(element.id);
-            if (saved) element.dataset.gowoMessageTime = historyTimeLabel(saved);
+            if (saved) {
+                element.dataset.gowoMessageTime = historyTimeLabel(saved);
+                showMessageEdit(element, saved);
+                syncEditAction(element, saved);
+            }
             return element.id;
         }));
         const missing = room.data.messages.filter(entry => !nativeIds.has(entry.id) && !room.deleted.has(entry.id));
@@ -2354,6 +2375,7 @@
             message.dataset.gowoHistoryId = entry.id;
             messageAuthors.set(message, { id: message.id, author: entry.author });
             message.dataset.gowoMessageTime = historyTimeLabel(entry);
+            if (entry.edited) message.classList.add('gowo-edited-message');
             const user = document.createElement('div');
             user.className = 'user';
             const text = document.createElement('div');
@@ -2399,6 +2421,7 @@
             });
             item.append(replyButton);
             actions.append(item);
+            if (isEditableEntry(entry)) actions.append(editActionItem(entry.id));
             message.append(user, actions);
             renderMessageEmotes(message);
             archive.append(message);
@@ -2431,7 +2454,10 @@
                     messages.set(entry.id, {
                         ...entry, receivedAt: previous?.receivedAt ?? entry.receivedAt,
                         ...(previous?.rev ? { rev: previous.rev } : {}),
-                        ...(previous?.approx ? { approx: true } : {})
+                        ...(previous?.approx ? { approx: true } : {}),
+                        ...(previous?.mine ? { mine: true } : {}),
+                        // Gowo still shows the original text; the edit wins.
+                        ...(previous?.edited ? { parts: previous.parts, edited: previous.edited } : {})
                     });
                 }
                 stored.messages = [...messages.values()].sort((a, b) => a.receivedAt - b.receivedAt).slice(-chatHistoryLimit);
@@ -2475,7 +2501,8 @@
                 reply: replyName ? {
                     author: (replyAuthorNames.get(replyName)?.fullName || replyName.textContent.trim()).slice(0, 200),
                     parts: historyParts(element.querySelector('.text__reply__text'))
-                } : null
+                } : null,
+                ...(previous?.id === element.id && previous.mine ? { mine: true } : {})
             };
             if (JSON.stringify(previous) === JSON.stringify(entry)) continue;
             if (previous?.id !== element.id) fresh.push({ element, entry });
@@ -2489,7 +2516,11 @@
         const live = room.captured ? fresh.length <= 3 :
             fresh.length === 1 && Date.now() - room.listSeenAt >= 5000;
         room.captured = true;
-        for (const { element, entry } of fresh) queueChatSyncReport(room, element, entry, live);
+        for (const { element, entry } of fresh) {
+            // A message of ours that just appeared was sent from this browser.
+            if (live && isOwnAuthor(entry.author)) entry.mine = true;
+            queueChatSyncReport(room, element, entry, live);
+        }
     }
 
     async function loadChatHistory(room) {
@@ -2576,7 +2607,8 @@
     }
 
     function queueChatSyncReport(room, element, entry, live) {
-        if (entry.id.length > chatSyncIdLimit || chatSync.known.has(entry.id) ||
+        // Our own message is reported even if the relay has it: that claims it.
+        if (entry.id.length > chatSyncIdLimit || (chatSync.known.has(entry.id) && !entry.mine) ||
             chatSync.queue.has(entry.id) || chatSync.sent.has(entry.id)) return;
         chatSync.queue.set(entry.id, { alias: room.alias, element, entry, live });
         // Bounded while the relay is unreachable.
@@ -2603,14 +2635,15 @@
             // one just before a successor it already knows.
             const item = items.findLast(candidate => !candidate.live) || items[0];
             chatSync.queue.delete(item.entry.id);
-            if (item.alias !== room.alias || chatSync.known.has(item.entry.id)) continue;
+            if (item.alias !== room.alias || (chatSync.known.has(item.entry.id) && !item.entry.mine)) continue;
             chatSync.sent.set(item.entry.id, item);
             const saved = room.data.messages.find(entry => entry.id === item.entry.id);
             let next = item.element.nextElementSibling;
             while (next && chatHistoryNodes.get(next)?.id !== next.id) next = next.nextElementSibling;
-            const { receivedAt, ...message } = item.entry;
+            const { receivedAt, mine, ...message } = item.entry;
             return {
                 type: 'seen', live: item.live,
+                ...(mine ? { key: getChatEditKey() } : {}),
                 // How long ago this browser first saw it, free of clock differences.
                 age: Math.max(0, Date.now() - (saved?.receivedAt ?? receivedAt)),
                 ...(next ? { next: next.id } : {}),
@@ -2646,7 +2679,7 @@
         if (reset) chatSync.known.clear();
         for (const row of rows) {
             chatSync.known.add(row.id);
-            chatSync.queue.delete(row.id);
+            if (!chatSync.queue.get(row.id)?.entry.mine) chatSync.queue.delete(row.id);
             chatSync.sent.delete(row.id);
         }
         // Until the first catch-up ends, single rows may run ahead of it.
@@ -2667,8 +2700,10 @@
                     if (!local && (ignored.has(row.id) || row.at <= stored.clearedAt)) continue;
                     // This browser's own first sight beats a time the relay guessed.
                     const keepLocalTime = Boolean(local) && row.approx === true;
+                    const edited = Number.isFinite(row.edited) && row.edited > 0 ? row.edited : 0;
                     messages.set(row.id, {
                         ...(local || { id: row.id, author: row.author, crown: row.crown, parts: row.parts, reply: row.reply }),
+                        ...(edited ? { parts: row.parts, edited } : {}),
                         receivedAt: keepLocalTime ? local.receivedAt : row.at,
                         approx: keepLocalTime ? local.approx : row.approx === true,
                         rev: row.rev
@@ -2695,7 +2730,200 @@
         }
     }
 
+    // Message edits. Gowo has none, so an edit goes to the relay, which hands
+    // the new text to everyone running Gowo.io+; others keep seeing the original.
+    // Only the browser that sent a message holds the key to edit it.
+    const chatEditKeyName = 'gowo-plus-edit-key-v1';
+    const chatEditBarId = 'gowo-chat-edit';
+    let chatEditKey = '';
+    let chatEdit = null;
+
+    function getChatEditKey() {
+        if (chatEditKey) return chatEditKey;
+        try { chatEditKey = localStorage.getItem(chatEditKeyName) || ''; } catch {}
+        if (!/^[a-f0-9]{64}$/.test(chatEditKey)) {
+            chatEditKey = [...crypto.getRandomValues(new Uint8Array(32))]
+                .map(value => value.toString(16).padStart(2, '0')).join('');
+            try { localStorage.setItem(chatEditKeyName, chatEditKey); } catch {}
+        }
+        return chatEditKey;
+    }
+
+    function isOwnAuthor(author) {
+        const normalize = value => value.replace(/\s+/g, ' ').trim().slice(0, 40);
+        return Boolean(cursorIdentityName) && normalize(author) === normalize(cursorIdentityName);
+    }
+
+    const isEditableEntry = entry => entry.mine === true && entry.parts.length > 0 &&
+        entry.parts.every(part => part.type !== 'image');
+
+    const editableText = entry => entry.parts
+        .map(part => part.type === 'link' && !/^https?:\/\//.test(part.text) ? part.url : part.text).join('');
+
+    function editParts(text) {
+        const parts = [];
+        let last = 0;
+        for (const match of text.matchAll(/https?:\/\/[^\s<>"']+/g)) {
+            const url = historyUrl(match[0]);
+            if (!url) continue;
+            if (match.index > last) parts.push({ type: 'text', text: text.slice(last, match.index) });
+            parts.push({ type: 'link', text: match[0], url });
+            last = match.index + match[0].length;
+        }
+        if (last < text.length) parts.push({ type: 'text', text: text.slice(last) });
+        return parts;
+    }
+
+    // Gowo renders the original; show the edited text in its place.
+    function showMessageEdit(element, entry) {
+        const body = element.querySelector('.text > .w-100');
+        const shown = entry.edited ? `${entry.id}:${entry.edited}` : '';
+        if (!body || !shown || element.dataset.gowoEdited === shown) return;
+        element.dataset.gowoEdited = shown;
+        element.classList.add('gowo-edited-message');
+        body.classList.remove('gowo-emote-only');
+        body.replaceChildren();
+        appendHistoryParts(body, entry.parts);
+        renderMessageEmotes(element);
+    }
+
+    function editActionItem(id) {
+        const item = document.createElement('li');
+        item.className = 'gowo-edit-action';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.title = 'Edit';
+        button.setAttribute('aria-label', 'Edit');
+        button.append(historyEditIcon('#A5A5A5'));
+        button.addEventListener('mousedown', event => event.preventDefault());
+        button.addEventListener('click', event => {
+            event.stopPropagation();
+            const entry = chatHistoryRoom?.data?.messages.find(candidate => candidate.id === id);
+            if (entry) startChatEdit(entry);
+        });
+        item.append(button);
+        return item;
+    }
+
+    function syncEditAction(element, entry) {
+        const actions = element.querySelector(':scope > .user .actions, :scope > .actions');
+        const existing = actions?.querySelector('.gowo-edit-action');
+        const wanted = isEditableEntry(entry) ? entry.id : '';
+        if (!actions || (existing?.dataset.gowoEditId || '') === wanted) return;
+        existing?.remove();
+        if (!wanted) return;
+        const item = editActionItem(entry.id);
+        item.dataset.gowoEditId = entry.id;
+        actions.prepend(item);
+    }
+
+    function chatEditBar(title, text) {
+        const form = document.querySelector('app-chat-messages-room .form-message');
+        const footer = form?.querySelector(':scope > .chat-footer') || form?.querySelector('.chat-footer');
+        if (!form || !footer) return null;
+        document.getElementById(chatEditBarId)?.remove();
+        const bar = document.createElement('div');
+        bar.id = chatEditBarId;
+        bar.className = 'reply';
+        const content = document.createElement('div');
+        content.className = 'reply__content';
+        const name = document.createElement('p');
+        name.className = 'name';
+        name.textContent = title;
+        content.append(name);
+        if (text) {
+            const original = document.createElement('p');
+            original.className = 'text';
+            original.textContent = text;
+            renderSevenTvEmotes(original);
+            content.append(original);
+        }
+        bar.append(historyEditIcon('#fff'), content);
+        footer.parentNode.insertBefore(bar, footer);
+        return bar;
+    }
+
+    function showChatEditNotice(text) {
+        if (chatEdit) return;
+        const bar = chatEditBar(text, '');
+        if (!bar) return;
+        bar.classList.add('gowo-chat-edit-notice');
+        setTimeout(() => { if (bar.isConnected && !chatEdit) bar.remove(); }, 4000);
+    }
+
+    function cancelChatEdit(restore = true) {
+        const edit = chatEdit;
+        chatEdit = null;
+        document.getElementById(chatEditBarId)?.remove();
+        const input = document.querySelector('app-chat-messages-room .form-message textarea');
+        if (edit && restore && input) setComposerValue(input, edit.draft);
+    }
+
+    function startChatEdit(entry) {
+        const input = document.querySelector('app-chat-messages-room .form-message textarea');
+        if (!input || input.disabled || !isEditableEntry(entry)) return;
+        // Editing replaces replying.
+        document.querySelector(`app-chat-messages-room .form-message .reply:not(#${historyReplyBarId}):not(#${chatEditBarId}) app-icon-close-square`)?.click();
+        clearHistoryReply();
+        const draft = chatEdit ? chatEdit.draft : input.value;
+        const text = editableText(entry);
+        const bar = chatEditBar('Редактирование', text);
+        if (!bar) return;
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.title = 'Cancel edit';
+        close.setAttribute('aria-label', 'Cancel edit');
+        close.append(historyCloseIcon());
+        close.addEventListener('mousedown', event => event.preventDefault());
+        close.addEventListener('click', event => {
+            event.stopPropagation();
+            cancelChatEdit();
+        });
+        bar.append(close);
+        chatEdit = { id: entry.id, text, draft };
+        emoteAutocomplete?.close(true);
+        setComposerValue(input, text.slice(0, input.maxLength >= 0 ? input.maxLength : undefined));
+    }
+
+    function submitChatEdit(input) {
+        const edit = chatEdit;
+        const text = input.value.trim();
+        if (!edit || !text) return;
+        if (text === edit.text.trim()) return cancelChatEdit();
+        if (!chatSyncRoom()) {
+            cancelChatEdit();
+            showChatEditNotice('Нет связи с сервером Gowo.io+');
+            return;
+        }
+        cursorSocket.send(JSON.stringify({ type: 'edit', id: edit.id, key: getChatEditKey(), parts: editParts(text) }));
+        cancelChatEdit();
+    }
+
+    // Capture phase: these must run before Gowo's own Enter handler sends chat.
+    document.addEventListener('keydown', event => {
+        const input = event.target;
+        if (!input?.matches?.('app-chat-messages-room .form-message textarea') ||
+            event.isComposing || event.keyCode === 229) return;
+        const completing = emoteAutocomplete && !emoteAutocomplete.list.hidden;
+        const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+        if (chatEdit) {
+            if (completing || !plain || (event.key !== 'Enter' && event.key !== 'Escape')) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            if (event.key === 'Enter') submitChatEdit(input);
+            else cancelChatEdit();
+            return;
+        }
+        // Up in an empty composer edits the last message sent from here.
+        if (event.key !== 'ArrowUp' || !plain || input.value) return;
+        const entry = chatHistoryRoom?.data?.messages.findLast(isEditableEntry);
+        if (!entry) return;
+        event.preventDefault();
+        startChatEdit(entry);
+    }, true);
+
     function syncChatHistory() {
+        if (chatEdit && !document.getElementById(chatEditBarId)) chatEdit = null;
         let alias;
         try { alias = getRoomAlias(); } catch { return; }
         const list = document.querySelector('app-chat-messages-room .messages-wrapper > .messages');
@@ -3010,24 +3238,33 @@
         .gowo-history-message .gowo-history-actions { display: none; margin: 0; }
         .gowo-history-message:hover .gowo-history-actions { display: flex; align-items: center; }
         app-chat-messages-room:not(:has(.form-message textarea)) .gowo-history-actions { display: none!important; }
-        .gowo-history-actions button, #${historyReplyBarId} > button {
+        .gowo-history-actions button, .gowo-edit-action button,
+        #${historyReplyBarId} > button, #${chatEditBarId} > button {
             display: flex; padding: 0; border: 0; background: transparent; cursor: pointer;
         }
         .gowo-history-actions svg { width: 18px; height: 18px; }
-        #${historyReplyBarId} {
+        .gowo-history-actions li + li { margin-left: 4px; }
+        .message .actions .gowo-edit-action { display: flex; align-items: center; margin-right: 4px; }
+        .message .actions .gowo-edit-action svg { width: 16px; height: 16px; }
+        .gowo-edited-message .text > .w-100::after {
+            content: '(изм.)'; margin-left: 5px; font-size: 10px; color: #8a8a8a; white-space: nowrap;
+        }
+        .gowo-chat-edit-notice .name { font-weight: 400!important; color: #ffb4b4!important; }
+        #${historyReplyBarId}, #${chatEditBarId} {
             display: flex; align-items: center; justify-content: space-between;
             gap: 10px; padding: 5px 0; border-top: 1px solid #5F666D;
         }
-        #${historyReplyBarId} > svg, #${historyReplyBarId} > button svg {
+        #${historyReplyBarId} > svg, #${historyReplyBarId} > button svg,
+        #${chatEditBarId} > svg, #${chatEditBarId} > button svg {
             flex: 0 0 24px; width: 24px; height: 24px;
         }
-        #${historyReplyBarId} .reply__content { width: 100%; min-width: 0; white-space: nowrap; overflow: hidden; }
-        #${historyReplyBarId} .reply__content p {
+        #${historyReplyBarId} .reply__content, #${chatEditBarId} .reply__content { width: 100%; min-width: 0; white-space: nowrap; overflow: hidden; }
+        #${historyReplyBarId} .reply__content p, #${chatEditBarId} .reply__content p {
             margin: 0; text-align: left; font-size: 12px; line-height: 16px; color: #fff;
         }
-        #${historyReplyBarId} .reply__content .name { font-weight: 600; margin-bottom: 2px; }
-        #${historyReplyBarId} .reply__content .text { overflow: hidden; text-overflow: ellipsis; }
-        #${historyReplyBarId} .gowo-chat-emote { height: 16px!important; vertical-align: middle; }
+        #${historyReplyBarId} .reply__content .name, #${chatEditBarId} .reply__content .name { font-weight: 600; margin-bottom: 2px; }
+        #${historyReplyBarId} .reply__content .text, #${chatEditBarId} .reply__content .text { overflow: hidden; text-overflow: ellipsis; }
+        #${historyReplyBarId} .gowo-chat-emote, #${chatEditBarId} .gowo-chat-emote { height: 16px!important; vertical-align: middle; }
         .gowo-history-setting { margin: 8px 0; }
         .gowo-history-setting p { margin: 0 0 6px; }
         .gowo-history-status { color: #999; }

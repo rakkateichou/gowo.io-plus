@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import http from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -5,6 +6,7 @@ import { createMessageStore } from './store.mjs';
 
 const roomPattern = /^[a-f0-9]{64}$/;
 const clientPattern = /^[a-f0-9]{32}$/;
+const keyPattern = /^[a-f0-9]{64}$/;
 const maxClients = 1000;
 const maxClientsPerRoom = 64;
 const maxMessagesPerSecond = 60;
@@ -66,6 +68,12 @@ function cleanChatMessage(value) {
             parts: cleanParts(value.reply.parts)
         } : null
     };
+}
+
+// A browser proves authorship with a secret only it holds; the store keeps a hash.
+function ownerOf(key) {
+    return typeof key === 'string' && keyPattern.test(key) ?
+        createHash('sha256').update(key).digest('hex') : '';
 }
 
 function send(socket, payload) {
@@ -205,6 +213,7 @@ export function createPluginRelay(options = {}) {
                 const result = chatMessage && store.record(state.room, chatMessage, {
                     live: message.live === true,
                     age: Number(message.age),
+                    owner: ownerOf(message.key),
                     next: typeof message.next === 'string' ? message.next.slice(0, messageIdLimit) : ''
                 });
                 if (!result) return;
@@ -219,6 +228,16 @@ export function createPluginRelay(options = {}) {
                 const row = typeof message.id === 'string' && message.id.length <= messageIdLimit ?
                     store.remove(state.room, message.id) : null;
                 if (row) broadcast(state.room, { type: 'history', messages: [row] });
+                return;
+            }
+            if (message?.type === 'edit') {
+                if (typeof message.id !== 'string' || message.id.length > messageIdLimit) return;
+                // An edit is text and links; it cannot turn a message into an image.
+                const parts = cleanParts(message.parts).filter(part => part.type !== 'image');
+                const row = parts.some(part => part.text.trim()) ?
+                    store.edit(state.room, message.id, ownerOf(message.key), parts) : null;
+                if (row) broadcast(state.room, { type: 'history', messages: [row] });
+                else send(socket, { type: 'edit-refused', id: message.id });
                 return;
             }
             if (message?.type !== 'cursor') return;

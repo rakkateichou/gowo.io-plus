@@ -9,6 +9,7 @@ A userscript for Tampermonkey and Safari Userscripts that enhances Gowo.io rooms
 - Local receive/send time shown when hovering over a live chat message
 - Up to 1,000 locally saved messages per room, restored at the newest message after reload
 - Messages sent while you were away, caught up from the Gowo.io+ relay when you return
+- Editing your own messages, for everyone in the room who runs Gowo.io+
 - Reply text always starts below its quoted message
 - First-name-only quoted authors, using their chat nickname colour
 - Simple, uncircled chat-header icons with the original controls and tooltips
@@ -98,6 +99,14 @@ above. Sending still goes through Gowo only.
   so everyone sees the same hover time. A message nobody running Gowo.io+
   witnessed live has no known time; it is placed in chat order and its hover
   time is marked `≈`.
+- **Edits.** Gowo has no message editing, so an edit is kept by the relay and
+  shown by Gowo.io+ in place of the original, marked `(изм.)`. Hover one of
+  your messages and click the pencil, or press **Up** in an empty chat box to
+  edit your last one; **Enter** saves and **Escape** cancels. Anyone without
+  Gowo.io+ keeps seeing the original text. A message can only be edited from
+  the browser that sent it (while Gowo.io+ was running): that browser holds a
+  random key, saved in Gowo's site data, and the relay stores its hash.
+  GIF messages cannot be edited.
 - **Deletions.** A message deleted in Gowo while a Gowo.io+ user is watching is
   also removed from the relay and from other users' saved history.
 - **What is stored.** For each message: Gowo's message ID, the author's display

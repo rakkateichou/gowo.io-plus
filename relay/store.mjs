@@ -33,6 +33,10 @@ export function createMessageStore(path = ':memory:') {
         CREATE INDEX IF NOT EXISTS messages_by_rev ON messages (room, rev);
         CREATE INDEX IF NOT EXISTS messages_by_time ON messages (room, at);
     `);
+    // Stores from before message edits have no owner column.
+    if (!db.prepare('PRAGMA table_info(messages)').all().some(column => column.name === 'owner')) {
+        db.exec('ALTER TABLE messages ADD COLUMN owner TEXT');
+    }
     const idleBefore = Date.now() - idleRoomMs;
     db.prepare('DELETE FROM messages WHERE room IN (SELECT room FROM rooms WHERE touched < ?)').run(idleBefore);
     db.prepare('DELETE FROM rooms WHERE touched < ?').run(idleBefore);
@@ -43,8 +47,10 @@ export function createMessageStore(path = ':memory:') {
         INSERT INTO rooms (room, rev, touched) VALUES (?, ?, ?)
         ON CONFLICT (room) DO UPDATE SET rev = excluded.rev, touched = excluded.touched
     `);
-    const selectMessage = db.prepare('SELECT id, rev, at, approx, deleted, body FROM messages WHERE room = ? AND id = ?');
-    const insertMessage = db.prepare('INSERT INTO messages (room, id, rev, at, approx, body) VALUES (?, ?, ?, ?, ?, ?)');
+    const selectMessage = db.prepare('SELECT id, rev, at, approx, deleted, body, owner FROM messages WHERE room = ? AND id = ?');
+    const insertMessage = db.prepare('INSERT INTO messages (room, id, rev, at, approx, body, owner) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const claimMessage = db.prepare('UPDATE messages SET owner = ? WHERE room = ? AND id = ?');
+    const editMessage = db.prepare('UPDATE messages SET body = ?, rev = ? WHERE room = ? AND id = ?');
     const deleteMessage = db.prepare("UPDATE messages SET deleted = 1, body = '{}', rev = ? WHERE room = ? AND id = ?");
     const selectAfter = db.prepare('SELECT id, rev, at, approx, deleted, body FROM messages WHERE room = ? AND rev > ? ORDER BY rev LIMIT ?');
     const countMessages = db.prepare('SELECT COUNT(*) AS count FROM messages WHERE room = ?');
@@ -80,10 +86,15 @@ export function createMessageStore(path = ':memory:') {
         // is timed exactly, by this server's clock less the reporter's own delay.
         // A message that was only replayed to the reporter has no known time: it
         // is placed just before the message that followed it in the chat.
-        record(room, message, { live = false, age = 0, next = '', now = Date.now() } = {}) {
+        // `owner` marks the reporter as the author: the first to claim a message
+        // is the only one who may edit it later.
+        record(room, message, { live = false, age = 0, next = '', owner = '', now = Date.now() } = {}) {
             return transaction(() => {
                 const existing = selectMessage.get(room, message.id);
-                if (existing) return { row: toRow(existing), created: false };
+                if (existing) {
+                    if (owner && !existing.owner && !existing.deleted) claimMessage.run(owner, room, message.id);
+                    return { row: toRow(existing), created: false };
+                }
                 const known = selectRoom.get(room);
                 if (!known && countRooms.get().count >= maxRooms) return null;
 
@@ -96,7 +107,7 @@ export function createMessageStore(path = ':memory:') {
                 const rev = (known?.rev || 0) + 1;
                 const { id, ...body } = message;
                 upsertRoom.run(room, rev, now);
-                insertMessage.run(room, id, rev, at, live ? 0 : 1, JSON.stringify(body));
+                insertMessage.run(room, id, rev, at, live ? 0 : 1, JSON.stringify(body), owner || null);
                 const excess = countMessages.get(room).count - maxMessagesPerRoom;
                 if (excess > 0) pruneMessages.run(room, excess);
                 return { row: toRow(selectMessage.get(room, id)), created: true };
@@ -111,6 +122,18 @@ export function createMessageStore(path = ':memory:') {
                 const rev = selectRoom.get(room).rev + 1;
                 upsertRoom.run(room, rev, now);
                 deleteMessage.run(rev, room, id);
+                return toRow(selectMessage.get(room, id));
+            });
+        },
+
+        // Replaces a message's content; only for whoever claimed it.
+        edit(room, id, owner, parts, now = Date.now()) {
+            return transaction(() => {
+                const existing = selectMessage.get(room, id);
+                if (!existing || existing.deleted || !owner || existing.owner !== owner) return null;
+                const rev = selectRoom.get(room).rev + 1;
+                upsertRoom.run(room, rev, now);
+                editMessage.run(JSON.stringify({ ...JSON.parse(existing.body), parts, edited: now }), rev, room, id);
                 return toRow(selectMessage.get(room, id));
             });
         },

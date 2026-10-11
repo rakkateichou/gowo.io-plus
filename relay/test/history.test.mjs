@@ -90,6 +90,31 @@ test('a room keeps only its newest 2000 messages and history survives a restart'
     rmSync(directory, { recursive: true, force: true });
 });
 
+test('only the browser that claimed a message can edit it', () => {
+    const store = createMessageStore();
+    // A bystander reports first; the author claims the message afterwards.
+    store.record(room, chat('m1', 'frist'), { live: true, now: 1_000 });
+    assert.equal(store.edit(room, 'm1', 'author', [{ type: 'text', text: 'x' }], 2_000), null, 'unclaimed');
+    assert.equal(store.record(room, chat('m1'), { live: true, owner: 'author', now: 1_100 }).created, false);
+    store.record(room, chat('m1'), { live: true, owner: 'latecomer', now: 1_200 });
+    assert.equal(store.edit(room, 'm1', 'latecomer', [{ type: 'text', text: 'hijack' }], 2_000), null);
+    assert.equal(store.edit(room, 'm1', '', [{ type: 'text', text: 'hijack' }], 2_000), null);
+
+    const edited = store.edit(room, 'm1', 'author', [{ type: 'text', text: 'first' }], 3_000);
+    assert.deepEqual(edited, {
+        id: 'm1', rev: 2, at: 1_000, approx: false, deleted: false,
+        author: 'Alice Example', parts: [{ type: 'text', text: 'first' }], reply: null, edited: 3_000
+    });
+    assert.deepEqual(store.since(room, 1).messages, [edited], 'absent clients receive the edit');
+    assert.equal(JSON.stringify(edited).includes('author"') && !('owner' in edited), true);
+
+    // Claimed on first report; a deleted message cannot be edited back.
+    store.record(room, chat('m2'), { live: true, owner: 'author', now: 4_000 });
+    store.remove(room, 'm2', 5_000);
+    assert.equal(store.edit(room, 'm2', 'author', [{ type: 'text', text: 'x' }], 6_000), null);
+    store.close();
+});
+
 async function connect(port, client) {
     const socket = new WebSocket(`ws://127.0.0.1:${port}/gowo-plugin`, { origin: 'https://gowo.io' });
     const inbox = [];
@@ -174,6 +199,24 @@ test('a message one client reports reaches the room now and an absent client lat
         ['m2', false, 'while Bob was away'],
         ['m1', true, undefined]
     ]);
+
+    // Edits: the author's key works, anyone else's is refused.
+    const key = 'c'.repeat(64);
+    alice.say({ type: 'seen', live: true, key, message: chat('m3', 'tpyo') });
+    await alice.next();
+    await late.next();
+    late.say({ type: 'edit', id: 'm3', key: 'd'.repeat(64), parts: [{ type: 'text', text: 'mine now' }] });
+    assert.deepEqual(await late.next(), { type: 'edit-refused', id: 'm3' });
+    alice.say({ type: 'edit', id: 'm3', key, parts: [{ type: 'text', text: '   ' }] });
+    assert.deepEqual(await alice.next(), { type: 'edit-refused', id: 'm3' });
+    alice.say({ type: 'edit', id: 'm3', key, parts: [
+        { type: 'text', text: 'typo ' },
+        { type: 'image', text: 'GIF', url: 'https://media.giphy.com/media/x/giphy.gif' }
+    ] });
+    const fixed = (await late.next()).messages[0];
+    assert.deepEqual(await alice.next(), { type: 'history', messages: [fixed] });
+    assert.deepEqual([fixed.id, fixed.rev, fixed.parts, typeof fixed.edited, 'key' in fixed, 'owner' in fixed],
+        ['m3', 5, [{ type: 'text', text: 'typo ' }], 'number', false, false]);
 
     alice.socket.close();
     late.socket.close();

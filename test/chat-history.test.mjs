@@ -32,9 +32,16 @@ const nativeMessage = (id, formatted = false, omitNickname = false) => `
     </div>
   </div>`;
 
-function harness({ database = new IDBFactory(), room = 'room-a', content = '', html, clock = { now: 1800000000000 }, relay = false } = {}) {
+function harness({ database = new IDBFactory(), room = 'room-a', content = '', html, clock = { now: 1800000000000 }, relay = false, identity = '' } = {}) {
     const dom = parseHTML(`<!doctype html><html><head></head><body>${html ?? chat(content)}</body></html>`);
     const { document } = dom;
+    for (const input of document.querySelectorAll('textarea')) {
+        input.setSelectionRange = () => {};
+        input.focus = () => {};
+    }
+    // Signed in: the script learns its own name from Gowo's profile endpoint.
+    if (identity) Object.defineProperty(document, 'cookie', { value: 'token=test-token' });
+    const [name, surname] = identity.split(' ');
     const listeners = new Map(), observers = [], resizes = [], frames = [], sockets = [], timers = [];
     // Stands in for the relay connection; tests play the relay's side.
     class FakeSocket {
@@ -49,7 +56,7 @@ function harness({ database = new IDBFactory(), room = 'room-a', content = '', h
         open() { this.readyState = 1; this.handlers.get('open')({}); }
         receive(message) { this.handlers.get('message')({ data: JSON.stringify(message) }); }
         // Chat-sync packets only; cursor diagnostics are not under test here.
-        take() { return this.sent.splice(0).filter(packet => ['join', 'sync', 'seen', 'gone'].includes(packet.type)); }
+        take() { return this.sent.splice(0).filter(packet => ['join', 'sync', 'seen', 'gone', 'edit'].includes(packet.type)); }
     }
     const wrappedStyles = new WeakSet();
     const metrics = { extra: 0 };
@@ -105,6 +112,8 @@ function harness({ database = new IDBFactory(), room = 'room-a', content = '', h
         cancelAnimationFrame() {}, clearTimeout() {},
         setTimeout: relay ? callback => timers.push(callback) : () => 1,
         ...(relay ? { WebSocket: FakeSocket } : {}),
+        Event: dom.Event, HTMLTextAreaElement: dom.HTMLTextAreaElement,
+        fetch: async () => ({ ok: Boolean(identity), json: async () => ({ name, surname }) }),
         MutationObserver: class {
             constructor(callback) { observers.push(callback); }
             observe() {}
@@ -741,4 +750,129 @@ test('messages this browser cleared stay cleared, and a native deletion is passe
     socket.receive({ type: 'history', messages: [serverRow('m9', 7, h.clock.now + 5), serverRow('m8', 8, h.clock.now - 5)] });
     await h.settle();
     assert.deepEqual((await stored(h.database)).messages, []);
+});
+
+const composer = '<form class="form-message"><div class="chat-footer"><div class="d-flex"><div class="w-100"><textarea maxlength="1500"></textarea></div></div></div></form>';
+const editRoom = content => `<app-chat-messages-room><div class="messages-wrapper"><div class="messages">${content}</div></div>${composer}</app-chat-messages-room>${settings}`;
+const hex64 = /^[a-f0-9]{64}$/;
+
+async function joined(options) {
+    const h = harness({ relay: true, identity: 'Руслан Эммм', ...options });
+    await h.settle();
+    const [socket] = h.sockets;
+    socket.open();
+    socket.receive({ type: 'history', page: true, rev: 0, through: 0, more: false, messages: [] });
+    await h.settle();
+    h.tick();
+    socket.take();
+    return { h, socket, input: h.document.querySelector('textarea') };
+}
+
+test('a message sent from this browser is claimed, and its edit goes to the relay instead of the chat', async () => {
+    const { h, socket, input } = await joined({ html: editRoom(message('m1', 'earlier', 'Друг Другов')) });
+    h.clock.now += 60000;
+    h.add('m2', 'tpyo', 'Руслан Эммм');
+    h.add('m3', 'not mine', 'Друг Другов');
+    h.tick(); h.tick();
+    const seen = socket.take();
+    assert.deepEqual(seen.map(packet => [packet.message.id, hex64.test(packet.key || ''), 'mine' in packet.message]),
+        [['m2', true, false], ['m3', false, false]]);
+    socket.receive({ type: 'history', messages: [serverRow('m2', 1, h.clock.now, { author: 'Руслан Эммм', parts: [{ type: 'text', text: 'tpyo' }] })] });
+    socket.receive({ type: 'history', messages: [serverRow('m3', 2, h.clock.now)] });
+    await h.settle();
+
+    const own = h.document.getElementById('m2');
+    assert.equal(h.document.querySelectorAll('.gowo-edit-action').length, 1, 'only our own message is editable');
+    own.querySelector('.gowo-edit-action button').click();
+    const bar = h.document.getElementById('gowo-chat-edit');
+    assert.equal(bar.querySelector('.text').textContent, 'tpyo');
+    assert.equal(input.value, 'tpyo');
+
+    input.value = 'typo https://example.com/a?b=1 :)';
+    h.event(input, 'keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    const [edit] = socket.take();
+    assert.deepEqual({ ...edit, key: hex64.test(edit.key) }, { type: 'edit', id: 'm2', key: true, parts: [
+        { type: 'text', text: 'typo ' },
+        { type: 'link', text: 'https://example.com/a?b=1', url: 'https://example.com/a?b=1' },
+        { type: 'text', text: ' :)' }
+    ] });
+    assert.equal(edit.key, seen[0].key);
+    assert.equal(h.document.getElementById('gowo-chat-edit'), null);
+    assert.equal(input.value, '');
+
+    const editedAt = h.clock.now + 5000;
+    socket.receive({ type: 'history', messages: [serverRow('m2', 3, h.clock.now, { author: 'Руслан Эммм', parts: edit.parts, edited: editedAt })] });
+    await h.settle();
+    const body = own.querySelector('.w-100');
+    assert.equal(body.textContent, 'typo https://example.com/a?b=1 :)');
+    assert.equal(body.querySelector('a').getAttribute('href'), 'https://example.com/a?b=1');
+    assert.ok(own.classList.contains('gowo-edited-message'));
+    const saved = (await stored(h.database)).messages.find(entry => entry.id === 'm2');
+    assert.deepEqual([saved.mine, saved.edited, saved.rev, saved.parts.length], [true, editedAt, 3, 3]);
+
+    // Gowo re-rendering its original text must not undo the edit.
+    body.innerHTML = 'tpyo';
+    delete own.dataset.gowoEdited;
+    await h.settle();
+    assert.equal(body.textContent, 'typo https://example.com/a?b=1 :)');
+    assert.equal((await stored(h.database)).messages.find(entry => entry.id === 'm2').parts.length, 3);
+});
+
+test('Up edits the last own message, Escape puts the draft back, and a refusal is shown', async () => {
+    const { h, socket, input } = await joined({ html: editRoom('') });
+    h.clock.now += 60000;
+    h.add('m1', 'mine', 'Руслан Эммм');
+    h.tick();
+    socket.take();
+    socket.receive({ type: 'history', messages: [serverRow('m1', 1, h.clock.now, { author: 'Руслан Эммм', parts: [{ type: 'text', text: 'mine' }] })] });
+    await h.settle();
+
+    h.event(input, 'keydown', { key: 'ArrowUp', bubbles: true, cancelable: true });
+    assert.equal(input.value, 'mine');
+    assert.ok(h.document.getElementById('gowo-chat-edit'));
+    // Unchanged text is not sent.
+    h.event(input, 'keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    assert.deepEqual(socket.take(), []);
+    assert.equal(h.document.getElementById('gowo-chat-edit'), null);
+
+    input.value = 'half-written';
+    h.document.getElementById('m1').querySelector('.gowo-edit-action button').click();
+    assert.equal(input.value, 'mine');
+    h.event(input, 'keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    assert.equal(input.value, 'half-written');
+    assert.equal(h.document.getElementById('gowo-chat-edit'), null);
+    // With text in the composer, Up keeps its normal meaning.
+    h.event(input, 'keydown', { key: 'ArrowUp', bubbles: true, cancelable: true });
+    assert.equal(h.document.getElementById('gowo-chat-edit'), null);
+
+    socket.receive({ type: 'edit-refused', id: 'm1' });
+    assert.equal(h.document.querySelector('#gowo-chat-edit .name').textContent, 'Не удалось изменить сообщение');
+});
+
+test('an edit made while away reaches restored messages, which only their sender can edit', async () => {
+    const first = await joined({ html: editRoom('') });
+    first.h.clock.now += 60000;
+    first.h.add('m1', 'mine', 'Руслан Эммм');
+    first.h.tick();
+    first.socket.receive({ type: 'history', messages: [
+        serverRow('m1', 1, first.h.clock.now, { author: 'Руслан Эммм', parts: [{ type: 'text', text: 'mine' }] }),
+        serverRow('m2', 2, first.h.clock.now + 1)
+    ] });
+    await first.h.settle();
+
+    const again = harness({ relay: true, identity: 'Руслан Эммм', database: first.h.database, html: editRoom('') });
+    await again.settle();
+    again.sockets[0].open();
+    assert.deepEqual(again.sockets[0].take().at(-1), { type: 'sync', after: 2 });
+    again.sockets[0].receive({ type: 'history', page: true, rev: 3, through: 3, more: false, messages: [
+        serverRow('m2', 3, first.h.clock.now + 1, { parts: [{ type: 'text', text: 'friend fixed this' }], edited: first.h.clock.now + 9 })
+    ] });
+    await again.settle();
+    const [mine, theirs] = again.document.querySelectorAll('[data-gowo-history-id]');
+    assert.deepEqual([mine.dataset.gowoHistoryId, Boolean(mine.querySelector('.gowo-edit-action')), mine.classList.contains('gowo-edited-message')],
+        ['m1', true, false]);
+    assert.deepEqual([theirs.querySelector('.w-100').textContent, Boolean(theirs.querySelector('.gowo-edit-action')), theirs.classList.contains('gowo-edited-message')],
+        ['friend fixed this', false, true]);
+    mine.querySelector('.gowo-edit-action button').click();
+    assert.equal(again.document.querySelector('textarea').value, 'mine');
 });

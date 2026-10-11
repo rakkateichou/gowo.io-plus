@@ -1458,7 +1458,7 @@
         return `hsl(${hue}, 85%, 70%)`; // bright for black bg
     }
 
-    const cursorRelayUrl = 'wss://n8n.rkde.su/gowo-cursor';
+    const cursorRelayUrl = 'wss://sg.rkde.su/gowo-plugin';
     const cursorSendIntervalMs = 50;
     const cursorStaleAfterMs = 1600;
     const cursorStaleTimers = new Map();

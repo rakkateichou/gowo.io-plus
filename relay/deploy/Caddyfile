@@ -1,0 +1,11 @@
+ru.rkde.su {
+	# Gowo.io+ sync relay (/opt/gowo-plugin-relay, gowo-plugin-relay.service).
+	# Nothing else is served on this host name.
+	handle /gowo-plugin {
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	handle {
+		respond 404
+	}
+}

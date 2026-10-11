@@ -1,0 +1,26 @@
+[Unit]
+Description=Gowo.io+ sync relay (wss://ru.rkde.su/gowo-plugin via Caddy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/node /opt/gowo-plugin-relay/server.mjs
+Environment=HOST=127.0.0.1 PORT=3000 NODE_ENV=production
+DynamicUser=yes
+Restart=always
+RestartSec=2
+MemoryMax=160M
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

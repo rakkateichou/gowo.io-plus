@@ -32,7 +32,7 @@ const nativeMessage = (id, formatted = false, omitNickname = false) => `
     </div>
   </div>`;
 
-function harness({ database = new IDBFactory(), room = 'room-a', content = '', html, clock = { now: 1800000000000 }, relay = false, identity = '' } = {}) {
+function harness({ database = new IDBFactory(), room = 'room-a', content = '', html, clock = { now: 1800000000000 }, relay = false, identity = '', saved = null } = {}) {
     const dom = parseHTML(`<!doctype html><html><head></head><body>${html ?? chat(content)}</body></html>`);
     const { document } = dom;
     for (const input of document.querySelectorAll('textarea')) {
@@ -56,7 +56,7 @@ function harness({ database = new IDBFactory(), room = 'room-a', content = '', h
         open() { this.readyState = 1; this.handlers.get('open')({}); }
         receive(message) { this.handlers.get('message')({ data: JSON.stringify(message) }); }
         // Chat-sync packets only; cursor diagnostics are not under test here.
-        take() { return this.sent.splice(0).filter(packet => ['join', 'sync', 'seen', 'gone', 'edit'].includes(packet.type)); }
+        take() { return this.sent.splice(0).filter(packet => ['join', 'sync', 'seen', 'gone', 'edit', 'control'].includes(packet.type)); }
     }
     const wrappedStyles = new WeakSet();
     const metrics = { extra: 0 };
@@ -74,7 +74,8 @@ function harness({ database = new IDBFactory(), room = 'room-a', content = '', h
         }
     };
     window.self = window.top = window;
-    const storage = { getItem: () => null, setItem() {} };
+    const storage = saved ? { getItem: key => saved.get(key) ?? null, setItem: (key, value) => saved.set(key, String(value)) } :
+        { getItem: () => null, setItem() {} };
     const setupDom = () => {
         for (const wrapper of document.querySelectorAll('.messages-wrapper')) {
             if (wrapper.fixtureMetrics) continue;
@@ -875,4 +876,68 @@ test('an edit made while away reaches restored messages, which only their sender
         ['friend fixed this', false, true]);
     mine.querySelector('.gowo-edit-action button').click();
     assert.equal(again.document.querySelector('textarea').value, 'mine');
+});
+
+const playerRoom = readonly => `<div class="videoplayer"><app-player-turbo><div class="danger-message">Администратор поставил фильм на паузу</div><iframe src="https://player.obrut.show/embed/x/kinopoisk/1?api=1&readonly=${readonly}&geo=all"></iframe></app-player-turbo></div>${editRoom('')}`;
+
+async function watching(readonly, saved = new Map()) {
+    const h = harness({ relay: true, saved, html: playerRoom(readonly) });
+    const posted = [], requests = [];
+    const frame = { postMessage: (message, origin) => posted.push({ message, origin }) };
+    h.document.querySelector('iframe').contentWindow = frame;
+    h.document.addEventListener('gowo-plus-playback', event => requests.push(JSON.parse(event.detail)));
+    await h.settle();
+    const [socket] = h.sockets;
+    socket.open();
+    socket.take();
+    const player = (data, overrides = {}) => h.emit('message', { data, origin: 'https://player.obrut.show', source: frame, ...overrides });
+    const commands = () => JSON.parse(JSON.stringify(posted.splice(0).filter(item => item.message.api)));
+    return { h, socket, player, commands, requests, saved };
+}
+
+test('a viewer pausing or resuming asks the room through the relay', async () => {
+    const { h, socket, player, commands, requests } = await watching(1);
+    assert.equal(h.document.getElementById('gowo-plus-shared-pause-toggle'), null, 'nothing to allow as a viewer');
+    player({ event: 'userpause', time: 12 });
+    player({ event: 'pause', time: 12 });
+    player({ event: 'userplay', time: 12 });
+    player({ event: 'userpause' }, { origin: 'https://evil.example' });
+    player({ event: 'userpause' }, { source: {} });
+    assert.deepEqual(socket.take(), [{ type: 'control', action: 'pause' }, { type: 'control', action: 'play' }]);
+    // A viewer never acts on someone else's request.
+    socket.receive({ type: 'control', action: 'pause' });
+    assert.deepEqual([commands(), requests], [[], []]);
+});
+
+test('the owner repeats a viewer request as its own, unless it is switched off', async () => {
+    const { h, socket, player, commands, requests, saved } = await watching(0);
+    player({ event: 'play', time: 0 });
+    player({ event: 'time', data: 41.5 });
+    // The owner's own pause is Gowo's business, not the relay's.
+    player({ event: 'userpause', time: 41 });
+    player({ event: 'userplay', time: 41 });
+    assert.deepEqual(socket.take(), []);
+
+    socket.receive({ type: 'control', action: 'explode' });
+    socket.receive({ type: 'control', action: 'play' });
+    assert.deepEqual([commands(), requests], [[], []], 'already playing');
+    socket.receive({ type: 'control', action: 'pause' });
+    assert.deepEqual(commands(), [{ message: { api: 'pause' }, origin: 'https://player.obrut.show' }]);
+    assert.deepEqual(requests.splice(0), [{ event: 'userpause', time: 41.5 }]);
+    player({ event: 'pause', time: 41 });
+    socket.receive({ type: 'control', action: 'pause' });
+    assert.deepEqual([commands(), requests], [[], []], 'already paused');
+    socket.receive({ type: 'control', action: 'play' });
+    assert.deepEqual(requests.splice(0), [{ event: 'userplay', time: 41.5 }]);
+    assert.deepEqual(commands().map(item => item.message), [{ api: 'play' }]);
+    player({ event: 'play', time: 41 });
+
+    const toggle = h.document.getElementById('gowo-plus-shared-pause-toggle');
+    assert.equal(toggle.checked, true, 'on by default');
+    assert.match(toggle.closest('label').textContent, /Разрешить всем ставить на паузу/);
+    toggle.checked = false;
+    h.event(toggle, 'change');
+    assert.equal(saved.get('gowo-plus-shared-pause'), 'false');
+    socket.receive({ type: 'control', action: 'pause' });
+    assert.deepEqual([commands(), requests], [[], []]);
 });

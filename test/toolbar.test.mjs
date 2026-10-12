@@ -110,7 +110,8 @@ test('parent fits the iframe but keeps native controls until a trusted frame is 
     assert.ok(h.iframe.classList.contains('gowo-room-frame'));
     assert.ok(h.iframe.parentElement.classList.contains('gowo-player-host'));
     assert.equal(player.dataset.gowoToolbarReady, undefined);
-    assert.equal(h.messages[0].message.warning, state.warning);
+    // Anyone may pause now, so the notices no longer name the administrator.
+    assert.equal(h.messages[0].message.warning, 'Просмотр ещё не начат');
     assert.equal(h.messages[0].origin, 'https://player.obrut.show');
     h.receive({ type: 'ready', ready: true }, { origin: 'https://evil.example' });
     h.receive({ type: 'ready', ready: true }, { source: {} });

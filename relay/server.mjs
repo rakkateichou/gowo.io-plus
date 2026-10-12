@@ -240,6 +240,13 @@ export function createPluginRelay(options = {}) {
                 else send(socket, { type: 'edit-refused', id: message.id });
                 return;
             }
+            if (message?.type === 'control') {
+                // A viewer asks whoever controls the room to pause or resume.
+                if (message.action === 'pause' || message.action === 'play') {
+                    broadcast(state.room, { type: 'control', action: message.action }, socket);
+                }
+                return;
+            }
             if (message?.type !== 'cursor') return;
             const visible = message.visible !== false;
             const payload = {

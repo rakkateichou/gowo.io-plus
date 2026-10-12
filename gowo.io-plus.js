@@ -1374,6 +1374,123 @@
 
     let roomToolbar = null;
 
+    // With shared pausing it is not only the administrator who pauses.
+    const playerNotices = new Map([
+        ['Администратор поставил фильм на паузу', 'Пауза'],
+        ['Администратор еще не начал просмотр', 'Просмотр ещё не начат']
+    ]);
+    const playerNotice = text => playerNotices.get(text) ?? text;
+
+    // Shared pausing. Gowo only announces a pause or resume that comes from the
+    // owner's (or an admin's) player. Everyone else asks through the relay, and
+    // the owner's browser repeats the action as if its own player had done it.
+    const sharedPausePreferenceKey = 'gowo-plus-shared-pause';
+    const sharedPauseToggleId = 'gowo-plus-shared-pause-toggle';
+    const playbackEvent = 'gowo-plus-playback';
+    let playbackBridgeInstalled = false;
+    let playbackFrame = null;
+    let playbackPlaying = false;
+    let playbackTime = 0;
+
+    function readSharedPausePreference() {
+        try { return localStorage.getItem(sharedPausePreferenceKey) !== 'false'; } catch { return true; }
+    }
+
+    // The turbo player is told whether it may control the room.
+    function playbackRole() {
+        const frame = roomToolbar?.frame;
+        if (!frame?.isConnected) return '';
+        try {
+            const url = new URL(frame.src);
+            if (!/^[^.]+\.obrut\.show$/.test(url.hostname)) return '';
+            const readonly = url.searchParams.get('readonly');
+            return readonly === '0' ? 'controller' : readonly === '1' ? 'viewer' : '';
+        } catch { return ''; }
+    }
+
+    // Gowo's player component listens for the player's messages in the page.
+    function pagePlaybackBridge(eventName) {
+        document.addEventListener(eventName, event => {
+            let data;
+            try { data = JSON.parse(event.detail); } catch { return; }
+            window.dispatchEvent(new MessageEvent('message', { data }));
+        });
+    }
+
+    function installPlaybackBridge() {
+        if (playbackBridgeInstalled) return;
+        playbackBridgeInstalled = true;
+        const script = document.createElement('script');
+        script.textContent = `(${pagePlaybackBridge})(${JSON.stringify(playbackEvent)});`;
+        (document.head || document.documentElement).append(script);
+        script.remove();
+    }
+
+    function handlePlaybackRequest(action) {
+        const frame = roomToolbar?.frame;
+        if ((action !== 'pause' && action !== 'play') || playbackRole() !== 'controller' ||
+            playbackFrame !== frame || !readSharedPausePreference()) return;
+        // Someone else may already have done it.
+        if ((action === 'play') === playbackPlaying) return;
+        installPlaybackBridge();
+        // Our own player follows directly; Gowo tells everyone else.
+        frame.contentWindow?.postMessage({ api: action }, new URL(frame.src).origin);
+        document.dispatchEvent(new CustomEvent(playbackEvent, {
+            detail: JSON.stringify({ event: action === 'play' ? 'userplay' : 'userpause', time: playbackTime })
+        }));
+    }
+
+    window.addEventListener('message', event => {
+        const frame = roomToolbar?.frame;
+        const data = event.data;
+        if (!frame || event.source !== frame.contentWindow || !data || typeof data.event !== 'string' ||
+            !/^https:\/\/[^/]+\.obrut\.show$/.test(event.origin)) return;
+        if (playbackFrame !== frame) {
+            playbackFrame = frame;
+            playbackPlaying = false;
+            playbackTime = 0;
+        }
+        if (data.event === 'time' && Number.isFinite(Number(data.data))) playbackTime = Number(data.data);
+        if (data.event === 'play') playbackPlaying = true;
+        if (['pause', 'end', 'stop'].includes(data.event)) playbackPlaying = false;
+        if (playbackRole() !== 'viewer' || (data.event !== 'userpause' && data.event !== 'userplay')) return;
+        if (cursorJoinSent && cursorSocket?.readyState === WebSocket.OPEN) {
+            cursorSocket.send(JSON.stringify({ type: 'control', action: data.event === 'userplay' ? 'play' : 'pause' }));
+        }
+    });
+
+    function injectSharedPauseSetting() {
+        const form = document.querySelector('app-chat-settings-room .settings form');
+        const existing = document.getElementById(sharedPauseToggleId);
+        // Only whoever controls the room has something to allow.
+        if (!form || playbackRole() !== 'controller') {
+            existing?.closest('.gowo-setting-row')?.remove();
+            return;
+        }
+        if (existing) {
+            if (existing.checked !== readSharedPausePreference()) existing.checked = readSharedPausePreference();
+            return;
+        }
+        const anchor = document.getElementById(hideCallButtonToggleId)?.closest('.gowo-setting-row') ||
+            form.firstElementChild;
+        if (!anchor) return;
+        const row = document.createElement('div');
+        row.className = 'gowo-setting-row';
+        row.innerHTML = `
+            <label class="gowo-setting-label" for="${sharedPauseToggleId}">
+                <input type="checkbox" id="${sharedPauseToggleId}">
+                <span class="gowo-switch" aria-hidden="true"></span>
+                <span>Разрешить всем ставить на паузу</span>
+            </label>
+        `;
+        anchor.after(row);
+        const toggle = row.querySelector('input');
+        toggle.checked = readSharedPausePreference();
+        toggle.addEventListener('change', () => {
+            try { localStorage.setItem(sharedPausePreferenceKey, String(toggle.checked)); } catch {}
+        });
+    }
+
     function syncRoomToolbar(force = false) {
         const player = document.querySelector('.videoplayer');
         const frame = player && Array.from(player.querySelectorAll('iframe[src]'))
@@ -1413,7 +1530,7 @@
         }));
         const message = {
             source: toolbarBridgeMarker, type: 'state', platforms,
-            warning: player.querySelector('.danger-message')?.textContent.trim() || '',
+            warning: playerNotice(player.querySelector('.danger-message')?.textContent.trim() || ''),
             canRefresh: Boolean(player.querySelector('app-icon-refresh-2'))
         };
         const signature = JSON.stringify(message);
@@ -1472,18 +1589,6 @@
     let cursorRelayJoined = false;
     let cursorJoinSent = false;
     let cursorRoomAlias = '';
-    // Temporary diagnostics: counters only, ignored by the relay.
-    const cursorDebug = { rx: 0, nonText: 0, badJson: 0, stale: 0, strokes: 0, shown: 0 };
-    function sendCursorDebug(event) {
-        if (!cursorJoinSent || cursorSocket?.readyState !== WebSocket.OPEN) return;
-        try {
-            cursorSocket.send(JSON.stringify({
-                type: 'debug', event, joined: cursorRelayJoined, ...cursorDebug,
-                surface: getCursorSurface()?.tagName || null,
-                fullscreen: document.fullscreenElement?.tagName || null
-            }));
-        } catch {}
-    }
     let cursorReconnectTimer = null;
     let cursorReconnectDelay = 1000;
     let cursorHolding = false;
@@ -1760,8 +1865,6 @@
         pauseOwnCursor();
         cursorHolding = true;
         showCursorCaptureOverlay();
-        cursorDebug.strokes++;
-        sendCursorDebug('stroke');
     }
 
     function stopCursorDrawing() {
@@ -1792,7 +1895,6 @@
             x < 0 || x > 1 || y < 0 || y > 1) {
             return;
         }
-        if (cursorDebug.shown++ % 100 === 0) sendCursorDebug('showing');
         showCursor(
             message.client,
             String(message.username || 'Anonymous').slice(0, 40),
@@ -1832,20 +1934,13 @@
             }));
             cursorJoinSent = true;
             requestChatSync();
-            setTimeout(() => sendCursorDebug('after-join'), 3000);
         });
         socket.addEventListener('message', event => {
-            if (cursorSocket !== socket) {
-                cursorDebug.stale++;
-                return;
-            }
-            cursorDebug.rx++;
-            if (typeof event.data !== 'string') cursorDebug.nonText++;
+            if (cursorSocket !== socket) return;
             let message;
             try {
                 message = JSON.parse(event.data);
             } catch {
-                cursorDebug.badJson++;
                 return;
             }
             if (message?.type === 'joined') {
@@ -1854,6 +1949,10 @@
             }
             if (message?.type === 'history') {
                 applyChatSyncRows(message);
+                return;
+            }
+            if (message?.type === 'control') {
+                handlePlaybackRequest(message.action);
                 return;
             }
             if (message?.type === 'edit-refused') {
@@ -3695,6 +3794,7 @@
         removeInjectedAds();
         syncRoomToolbar();
         injectCallButtonSetting();
+        injectSharedPauseSetting();
         injectEmotePicker();
         syncChatHistory();
         injectChatHistorySetting();

@@ -88,7 +88,10 @@
     // Paints named cursors and their smoothed trails. Used by the room page
     // and, while the player is fullscreen, by the bridge inside its frame.
     function createCursorPainter() {
-        const maxTrailPoints = 600;
+        // A stroke is drawn as a chain of short paths, so a long drawing never
+        // has to rebuild (or give up) its beginning.
+        const trailSegmentPoints = 300;
+        const maxTrailSegments = 200;
         const curveTension = 0.45;
         const elements = new Map();
         const trails = new Map();
@@ -167,10 +170,16 @@
                 const distance = Math.hypot(x - previous.x, y - previous.y);
                 if (distance < 1) return;
             }
-            trail.points.push({ x, y });
-            if (trail.points.length > maxTrailPoints) {
-                trail.points.splice(0, trail.points.length - maxTrailPoints);
+            if (trail.points.length >= trailSegmentPoints) {
+                // Leave the finished path as it is and continue in a new one,
+                // overlapping by a point so the line has no gap.
+                trail.line = trail.line.cloneNode(false);
+                trail.line.removeAttribute('d');
+                trail.element.append(trail.line);
+                trail.points = trail.points.slice(-2);
+                if (trail.element.childElementCount > maxTrailSegments) trail.element.firstElementChild.remove();
             }
+            trail.points.push({ x, y });
             trail.line.setAttribute('d', trailPath(trail.points));
         }
 

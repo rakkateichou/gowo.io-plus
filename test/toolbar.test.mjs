@@ -319,6 +319,17 @@ test('a fullscreen player frame repaints the cursors forwarded by the room page'
     assert.equal(cursors()[0].querySelector('.gowo-shared-cursor-name').textContent, 'Руслан');
     assert.match(player.querySelector('.gowo-shared-cursor-trail-line').getAttribute('d'), /^M 500\.0,175\.0 L 600\.0,175\.0$/);
     assert.match([...h.document.querySelectorAll('style')].map(style => style.textContent).join(''), /\.gowo-shared-cursor \{/);
+    // A long drawing keeps its beginning: it continues in further paths.
+    for (let step = 1; step <= 1000; step++) {
+        paint({ ...show, point: { x: 0.6 - (step % 2) * 0.2, y: 0.25 + step / 2000 } });
+    }
+    const lines = [...player.querySelectorAll('.gowo-shared-cursor-trail-line')];
+    assert.equal(lines.length, 4);
+    assert.match(lines[0].getAttribute('d'), /^M 500\.0,175\.0 /);
+    assert.ok(lines.every(line => line.getAttribute('d').split(' C ').length <= 300));
+    const end = path => path.getAttribute('d').split(' ').at(-1);
+    assert.ok(lines[1].getAttribute('d').includes(end(lines[0])), 'each path picks up where the last one ended');
+    assert.equal(end(lines[3]), '600.0,525.0');
     paint({ type: 'remove', client: 'abc' });
     assert.equal(cursors().length, 0);
     assert.equal(player.querySelector('.gowo-shared-cursor-trail'), null);

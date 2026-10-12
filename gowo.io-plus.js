@@ -5,6 +5,7 @@
     'use strict';
 
     const cursorBridgeMarker = 'gowo-plus-cursor-bridge-v1';
+    const seekBridgeMarker = 'gowo-plus-seek-bridge-v1';
     const isCursorDrawKey = event => event.key === 'Control' ||
         event.code === 'ControlLeft' || event.code === 'ControlRight';
     const toolbarBridgeMarker = 'gowo-plus-player-toolbar-v1';
@@ -524,12 +525,47 @@
         window.addEventListener('resize', () => painter.clearTrails());
     }
 
+    // A viewer's turbo player ignores its own timeline: a click there only
+    // pauses. Catch that click and report where on the timeline it landed, so
+    // the room page can ask for a seek.
+    function initPlayerSeekBridge() {
+        const timeline = () => {
+            let best = null;
+            for (const element of document.querySelectorAll('pjsdiv')) {
+                const rect = element.getBoundingClientRect();
+                if (rect.width < window.innerWidth * 0.6 || rect.height < 1 || rect.height > 14 ||
+                    rect.bottom < window.innerHeight - 140 || rect.width <= (best?.width || 0)) continue;
+                const style = window.getComputedStyle(element);
+                if (style.visibility === 'hidden' || style.display === 'none') continue;
+                best = rect;
+            }
+            return best;
+        };
+        const handle = event => {
+            if (event.button || !event.isTrusted && event.type !== 'click') return;
+            const rect = timeline();
+            if (!rect || event.clientY < rect.top - 8 || event.clientY > rect.bottom + 8 ||
+                event.clientX < rect.left || event.clientX > rect.right) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            if (event.type !== 'click') return;
+            window.parent.postMessage({
+                source: seekBridgeMarker, type: 'seek',
+                fraction: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
+            }, 'https://gowo.io');
+        };
+        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+            document.addEventListener(type, handle, true);
+        }
+    }
+
     if (window.top !== window.self) {
         const hostname = window.location.hostname.toLowerCase();
         if (hostname === 'alloha.gowo.tv' ||
             hostname.endsWith('.obrut.show')) {
             initPlayerCursorBridge();
             initPlayerToolbarBridge();
+            if (/[?&]readonly=1(?:&|$)/.test(window.location.search || '')) initPlayerSeekBridge();
         }
         return;
     }
@@ -1381,9 +1417,10 @@
     ]);
     const playerNotice = text => playerNotices.get(text) ?? text;
 
-    // Shared pausing. Gowo only announces a pause or resume that comes from the
-    // owner's (or an admin's) player. Everyone else asks through the relay, and
-    // the owner's browser repeats the action as if its own player had done it.
+    // Shared playback control. Gowo only announces a pause, resume or seek that
+    // comes from the owner's (or an admin's) player. Everyone else asks through
+    // the relay, and the owner's browser repeats the action as if its own player
+    // had done it.
     const sharedPausePreferenceKey = 'gowo-plus-shared-pause';
     const sharedPauseToggleId = 'gowo-plus-shared-pause-toggle';
     const playbackEvent = 'gowo-plus-playback';
@@ -1391,6 +1428,7 @@
     let playbackFrame = null;
     let playbackPlaying = false;
     let playbackTime = 0;
+    let playbackDuration = 0;
 
     function readSharedPausePreference() {
         try { return localStorage.getItem(sharedPausePreferenceKey) !== 'false'; } catch { return true; }
@@ -1426,37 +1464,56 @@
         script.remove();
     }
 
-    function handlePlaybackRequest(action) {
+    function handlePlaybackRequest(action, time) {
         const frame = roomToolbar?.frame;
-        if ((action !== 'pause' && action !== 'play') || playbackRole() !== 'controller' ||
+        if (!['pause', 'play', 'seek'].includes(action) || playbackRole() !== 'controller' ||
             playbackFrame !== frame || !readSharedPausePreference()) return;
-        // Someone else may already have done it.
-        if ((action === 'play') === playbackPlaying) return;
+        const seek = action === 'seek';
+        if (seek ? !Number.isFinite(time) || time < 0 :
+            // Someone else may already have done it.
+            (action === 'play') === playbackPlaying) return;
         installPlaybackBridge();
         // Our own player follows directly; Gowo tells everyone else.
-        frame.contentWindow?.postMessage({ api: action }, new URL(frame.src).origin);
+        frame.contentWindow?.postMessage(seek ? { api: 'seek', set: time } : { api: action }, new URL(frame.src).origin);
         document.dispatchEvent(new CustomEvent(playbackEvent, {
-            detail: JSON.stringify({ event: action === 'play' ? 'userplay' : 'userpause', time: playbackTime })
+            detail: JSON.stringify(seek ? { event: 'userseek', time, data: time } :
+                { event: action === 'play' ? 'userplay' : 'userpause', time: playbackTime })
         }));
     }
 
     window.addEventListener('message', event => {
         const frame = roomToolbar?.frame;
         const data = event.data;
-        if (!frame || event.source !== frame.contentWindow || !data || typeof data.event !== 'string' ||
+        if (!frame || event.source !== frame.contentWindow || !data ||
             !/^https:\/\/[^/]+\.obrut\.show$/.test(event.origin)) return;
         if (playbackFrame !== frame) {
             playbackFrame = frame;
             playbackPlaying = false;
             playbackTime = 0;
+            playbackDuration = 0;
         }
+        const requestPlayback = (action, time) => {
+            if (playbackRole() !== 'viewer' || !cursorJoinSent || cursorSocket?.readyState !== WebSocket.OPEN) return;
+            cursorSocket.send(JSON.stringify({ type: 'control', action, ...(action === 'seek' ? { time } : {}) }));
+        };
+        // A click on the viewer's timeline, reported by the script in the player.
+        if (data.source === seekBridgeMarker) {
+            const fraction = Number(data.fraction);
+            if (data.type === 'seek' && playbackDuration > 0 && fraction >= 0 && fraction <= 1) {
+                requestPlayback('seek', Math.round(fraction * playbackDuration * 10) / 10);
+            }
+            return;
+        }
+        if (typeof data.event !== 'string') return;
+        if (data.event === 'duration' && Number(data.duration) > 0) playbackDuration = Number(data.duration);
         if (data.event === 'time' && Number.isFinite(Number(data.data))) playbackTime = Number(data.data);
         if (data.event === 'play') playbackPlaying = true;
         if (['pause', 'end', 'stop'].includes(data.event)) playbackPlaying = false;
-        if (playbackRole() !== 'viewer' || (data.event !== 'userpause' && data.event !== 'userplay')) return;
-        if (cursorJoinSent && cursorSocket?.readyState === WebSocket.OPEN) {
-            cursorSocket.send(JSON.stringify({ type: 'control', action: data.event === 'userplay' ? 'play' : 'pause' }));
-        }
+        const action = { userpause: 'pause', userplay: 'play', userseek: 'seek' }[data.event];
+        if (!action) return;
+        const time = Number(data.data);
+        if (action === 'seek' && (!Number.isFinite(time) || time < 0)) return;
+        requestPlayback(action, time);
     });
 
     function injectSharedPauseSetting() {
@@ -1480,7 +1537,7 @@
             <label class="gowo-setting-label" for="${sharedPauseToggleId}">
                 <input type="checkbox" id="${sharedPauseToggleId}">
                 <span class="gowo-switch" aria-hidden="true"></span>
-                <span>Разрешить всем ставить на паузу</span>
+                <span>Разрешить всем ставить на паузу и перематывать</span>
             </label>
         `;
         anchor.after(row);
@@ -1952,7 +2009,7 @@
                 return;
             }
             if (message?.type === 'control') {
-                handlePlaybackRequest(message.action);
+                handlePlaybackRequest(message.action, message.time);
                 return;
             }
             if (message?.type === 'edit-refused') {

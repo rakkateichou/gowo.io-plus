@@ -202,8 +202,11 @@ test('a message one client reports reaches the room now and an absent client lat
 
     // Playback requests go to the others in the room, and only valid ones.
     late.say({ type: 'control', action: 'explode' });
-    late.say({ type: 'control', action: 'pause' });
+    late.say({ type: 'control', action: 'seek', time: 'soon' });
+    late.say({ type: 'control', action: 'pause', time: 3 });
     assert.deepEqual(await alice.next(), { type: 'control', action: 'pause' });
+    late.say({ type: 'control', action: 'seek', time: 61.5, extra: true });
+    assert.deepEqual(await alice.next(), { type: 'control', action: 'seek', time: 61.5 });
 
     // Edits: the author's key works, anyone else's is refused.
     const key = 'c'.repeat(64);

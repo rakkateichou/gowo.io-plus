@@ -10,7 +10,7 @@ A userscript for Tampermonkey and Safari Userscripts that enhances Gowo.io rooms
 - Up to 1,000 locally saved messages per room, restored at the newest message after reload
 - Messages sent while you were away, caught up from the Gowo.io+ relay when you return
 - Editing your own messages, for everyone in the room who runs Gowo.io+
-- Pausing and resuming for everyone, not only the room owner
+- Pausing, resuming and seeking for everyone, not only the room owner
 - Reply text always starts below its quoted message
 - First-name-only quoted authors, using their chat nickname colour
 - Simple, uncircled chat-header icons with the original controls and tooltips
@@ -88,18 +88,19 @@ for each room (switching players does not create another history). The newest
 safe links, and Gowo's Giphy GIFs. Matching native message IDs are not duplicated.
 Restored messages are a read-only local archive, not messages sent back to Gowo.
 
-## Shared pausing
+## Shared playback control
 
-Gowo lets only the room owner and admins pause for everyone; a viewer's pause
-stays on their own screen. With Gowo.io+, a viewer's pause or resume is passed
-through the relay to the owner's browser, which repeats it as its own, so Gowo
-pauses or resumes the room as usual.
+Gowo lets only the room owner and admins pause or seek for everyone; a viewer's
+pause stays on their own screen and their seek snaps back. With Gowo.io+, a
+viewer's pause, resume or seek is passed through the relay to the owner's
+browser, which repeats it as its own, so Gowo moves the whole room as usual.
 
 - It needs Gowo.io+ on both sides, the owner (or an admin) in the room, and the
   turbo player.
-- The owner can switch it off with **Разрешить всем ставить на паузу** in the
-  room settings. It is on by default and remembered per browser.
-- Seeking and changing the episode stay with the owner.
+- The owner can switch it off with **Разрешить всем ставить на паузу и
+  перематывать** in the room settings. It is on by default and remembered per
+  browser.
+- Changing the episode stays with the owner.
 - The player notices no longer name the administrator: a paused room just says
   **Пауза**.
 

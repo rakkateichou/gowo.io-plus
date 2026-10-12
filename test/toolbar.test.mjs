@@ -18,7 +18,7 @@ const frameHtml = `<div id="oframeplayer">
   <pjsdiv id="native-share"><pjsdiv><pjsdiv></pjsdiv></pjsdiv><pjsdiv><pjsdiv><svg><g><path d="M12.6,12.6 C11.979,12.618"></path></g></svg></pjsdiv></pjsdiv></pjsdiv>
 </div>`;
 
-function harness(frame = false, html = frame ? frameHtml : parentHtml) {
+function harness(frame = false, html = frame ? frameHtml : parentHtml, url = frameUrl) {
     const dom = parseHTML(`<!doctype html><html><head></head><body>${html}</body></html>`);
     const { document } = dom;
     const listeners = new Map();
@@ -30,7 +30,7 @@ function harness(frame = false, html = frame ? frameHtml : parentHtml) {
     const parentWindow = { postMessage: (message, origin) => messages.push({ message, origin }) };
     const window = {
         document, innerWidth: 1000, innerHeight: 700,
-        location: new URL(frame ? frameUrl : 'https://gowo.io/fixture'),
+        location: new URL(frame ? url : 'https://gowo.io/fixture'),
         parent: parentWindow,
         getComputedStyle(element) {
             return {
@@ -346,4 +346,34 @@ test('the room page forwards cursors to the player frame only while that frame i
     assert.deepEqual({ ...show.message.point }, { x: 0.5, y: 0.5 });
     fire('keyup', { key: 'Control', code: 'ControlLeft', ctrlKey: false });
     assert.equal(painted().at(-1).message.type, 'remove');
+});
+
+test('a viewer\'s click on the player timeline is reported instead of pausing; an owner\'s is left alone', () => {
+    const html = `${frameHtml}<pjsdiv id="bar"></pjsdiv><pjsdiv id="played"></pjsdiv><pjsdiv id="tall"></pjsdiv>`;
+    const run = url => {
+        const h = harness(true, html, url);
+        const rect = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height });
+        h.document.querySelector('#bar').getBoundingClientRect = () => rect(10, 640, 980, 4);
+        h.document.querySelector('#played').getBoundingClientRect = () => rect(10, 640, 300, 4);
+        h.document.querySelector('#tall').getBoundingClientRect = () => rect(0, 600, 1000, 100);
+        h.messages.length = 0;
+        const click = (clientX, clientY) => {
+            const event = new (h.document.defaultView?.Event || Event)('click', { bubbles: true, cancelable: true });
+            Object.assign(event, { clientX, clientY, button: 0 });
+            h.document.querySelector('#oframeplayer').dispatchEvent(event);
+            return event.defaultPrevented;
+        };
+        return { h, click, seeks: () => JSON.parse(JSON.stringify(h.messages.splice(0).filter(item => item.message.type === 'seek'))) };
+    };
+    const viewer = run(`${frameUrl}?api=1&readonly=1`);
+    assert.equal(viewer.click(500, 300), false, 'a click on the video is the player\'s own');
+    assert.equal(viewer.click(255, 645), true);
+    assert.equal(viewer.click(990, 636), true);
+    assert.deepEqual(viewer.seeks(), [
+        { message: { source: 'gowo-plus-seek-bridge-v1', type: 'seek', fraction: 0.25 }, origin: 'https://gowo.io' },
+        { message: { source: 'gowo-plus-seek-bridge-v1', type: 'seek', fraction: 1 }, origin: 'https://gowo.io' }
+    ]);
+    const owner = run(`${frameUrl}?api=1&readonly=0`);
+    assert.equal(owner.click(255, 645), false);
+    assert.deepEqual(owner.seeks(), []);
 });

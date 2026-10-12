@@ -903,7 +903,17 @@ test('a viewer pausing or resuming asks the room through the relay', async () =>
     player({ event: 'userplay', time: 12 });
     player({ event: 'userpause' }, { origin: 'https://evil.example' });
     player({ event: 'userpause' }, { source: {} });
-    assert.deepEqual(socket.take(), [{ type: 'control', action: 'pause' }, { type: 'control', action: 'play' }]);
+    player({ event: 'userseek', time: 12, data: 95.25 });
+    player({ event: 'userseek', time: 12 });
+    // A timeline click reported by the script inside the player.
+    const click = { source: 'gowo-plus-seek-bridge-v1', type: 'seek', fraction: 0.25 };
+    player(click);
+    player({ event: 'duration', time: 12, data: 2704.16, duration: 2704.16 });
+    player(click);
+    player({ ...click, fraction: 1.5 });
+    player(click, { source: {} });
+    assert.deepEqual(socket.take(), [{ type: 'control', action: 'pause' }, { type: 'control', action: 'play' },
+        { type: 'control', action: 'seek', time: 95.25 }, { type: 'control', action: 'seek', time: 676 }]);
     // A viewer never acts on someone else's request.
     socket.receive({ type: 'control', action: 'pause' });
     assert.deepEqual([commands(), requests], [[], []]);
@@ -932,12 +942,19 @@ test('the owner repeats a viewer request as its own, unless it is switched off',
     assert.deepEqual(commands().map(item => item.message), [{ api: 'play' }]);
     player({ event: 'play', time: 41 });
 
+    socket.receive({ type: 'control', action: 'seek', time: -1 });
+    socket.receive({ type: 'control', action: 'seek' });
+    socket.receive({ type: 'control', action: 'seek', time: 300 });
+    assert.deepEqual(commands().map(item => item.message), [{ api: 'seek', set: 300 }]);
+    assert.deepEqual(requests.splice(0), [{ event: 'userseek', time: 300, data: 300 }]);
+
     const toggle = h.document.getElementById('gowo-plus-shared-pause-toggle');
     assert.equal(toggle.checked, true, 'on by default');
-    assert.match(toggle.closest('label').textContent, /Разрешить всем ставить на паузу/);
+    assert.match(toggle.closest('label').textContent, /Разрешить всем ставить на паузу и перематывать/);
     toggle.checked = false;
     h.event(toggle, 'change');
     assert.equal(saved.get('gowo-plus-shared-pause'), 'false');
     socket.receive({ type: 'control', action: 'pause' });
+    socket.receive({ type: 'control', action: 'seek', time: 10 });
     assert.deepEqual([commands(), requests], [[], []]);
 });

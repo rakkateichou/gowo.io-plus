@@ -241,9 +241,12 @@ export function createPluginRelay(options = {}) {
                 return;
             }
             if (message?.type === 'control') {
-                // A viewer asks whoever controls the room to pause or resume.
+                // A viewer asks whoever controls the room to pause, resume or seek.
+                const time = Number(message.time);
                 if (message.action === 'pause' || message.action === 'play') {
                     broadcast(state.room, { type: 'control', action: message.action }, socket);
+                } else if (message.action === 'seek' && Number.isFinite(time) && time >= 0 && time < 1e6) {
+                    broadcast(state.room, { type: 'control', action: 'seek', time }, socket);
                 }
                 return;
             }

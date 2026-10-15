@@ -110,8 +110,8 @@ browser, which repeats it as its own, so Gowo moves the whole room as usual.
 
 When someone running Gowo.io+ drops out of the room and is not back within
 about four seconds, the owner's browser pauses the room and everyone's player
-says why, for example **Пауза: Аня не на связи**. When they return it reads
-**Пауза: Аня снова на связи**; playback resumes when someone presses play.
+says why, for example **Пауза: Аня покинул(а) комнату**. When they return it reads
+**Пауза: Аня вернулся(ась)**; playback resumes when someone presses play.
 
 - The relay notices a connection that went silent within about ten seconds, and
   a closed or reloaded tab at once. A reload that is back within the four

@@ -1529,7 +1529,7 @@
 
     function showAutoPause(username) {
         autoPausedFor = username;
-        setPlaybackNotice(`Пауза: ${peerFirstName(username)} не на связи`);
+        setPlaybackNotice(`Пауза: ${peerFirstName(username)} покинул(а) комнату`);
     }
 
     function clearAutoPause() {
@@ -1554,7 +1554,7 @@
             clearTimeout(autoPauseTimers.get(username));
             autoPauseTimers.delete(username);
             if (autoPausedFor === username && playbackNoticeText) {
-                setPlaybackNotice(`Пауза: ${peerFirstName(username)} снова на связи`);
+                setPlaybackNotice(`Пауза: ${peerFirstName(username)} вернулся(ась)`);
             }
             return;
         }

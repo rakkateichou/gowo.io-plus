@@ -1048,12 +1048,12 @@ test('the owner pauses the room when someone drops out, says why, and notes thei
     assert.deepEqual(requests.splice(0), [{ event: 'userpause', time: 600 }]);
     assert.deepEqual(socket.take(), [{ type: 'autopause', ...friend }]);
     player({ event: 'pause', time: 600 });
-    assert.equal(warning(), 'Пауза: Аня не на связи');
+    assert.equal(warning(), 'Пауза: Аня покинул(а) комнату');
 
     socket.receive({ type: 'peer', ...friend, present: true });
-    assert.equal(warning(), 'Пауза: Аня снова на связи');
+    assert.equal(warning(), 'Пауза: Аня вернулся(ась)');
     socket.receive({ type: 'peer', ...friend, present: false });
-    assert.equal(warning(), 'Пауза: Аня не на связи', 'gone again before anyone pressed play');
+    assert.equal(warning(), 'Пауза: Аня покинул(а) комнату', 'gone again before anyone pressed play');
     h.tick();
     assert.deepEqual(commands(), [], 'already paused');
     socket.receive({ type: 'peer', ...friend, present: true });
@@ -1093,5 +1093,5 @@ test('auto-pause skips other tabs of the same person, a paused room, and an owne
     viewer.h.tick();
     assert.deepEqual(viewer.commands(), [], 'only the owner acts');
     viewer.socket.receive({ type: 'autopause', ...friend });
-    assert.equal(warning(), 'Пауза: Аня не на связи');
+    assert.equal(warning(), 'Пауза: Аня покинул(а) комнату');
 });

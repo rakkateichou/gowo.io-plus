@@ -1052,6 +1052,11 @@ test('the owner pauses the room when someone drops out, says why, and notes thei
 
     socket.receive({ type: 'peer', ...friend, present: true });
     assert.equal(warning(), 'Пауза: Аня снова на связи');
+    socket.receive({ type: 'peer', ...friend, present: false });
+    assert.equal(warning(), 'Пауза: Аня не на связи', 'gone again before anyone pressed play');
+    h.tick();
+    assert.deepEqual(commands(), [], 'already paused');
+    socket.receive({ type: 'peer', ...friend, present: true });
     player({ event: 'play', time: 600 });
     assert.equal(warning(), 'Пауза', 'back to the plain notice once playing again');
 });

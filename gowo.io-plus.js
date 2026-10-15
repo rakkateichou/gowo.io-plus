@@ -1561,6 +1561,7 @@
         roomPeers.delete(message.client);
         // Still here in another tab, or one of our own other tabs closing.
         if (peerPresent(username) || username === cursorNickname() || autoPauseTimers.has(username)) return;
+        if (autoPausedFor === username && playbackNoticeText) showAutoPause(username);
         if (playbackRole() !== 'controller' || !readAutoPausePreference() || !playbackPlaying) return;
         autoPauseTimers.set(username, setTimeout(() => {
             autoPauseTimers.delete(username);

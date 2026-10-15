@@ -1474,13 +1474,19 @@
     }
 
     function handlePlaybackRequest(action, time) {
+        if (!readSharedPausePreference()) return;
+        commandRoomPlayback(action, time);
+    }
+
+    // Acts for the room from the owner's browser; false if it could not.
+    function commandRoomPlayback(action, time) {
         const frame = roomToolbar?.frame;
         if (!['pause', 'play', 'seek'].includes(action) || playbackRole() !== 'controller' ||
-            playbackFrame !== frame || !readSharedPausePreference()) return;
+            playbackFrame !== frame) return false;
         const seek = action === 'seek';
         if (seek ? !Number.isFinite(time) || time < 0 :
             // Someone else may already have done it.
-            (action === 'play') === playbackPlaying) return;
+            (action === 'play') === playbackPlaying) return false;
         installPlaybackBridge();
         // Our own player follows directly; Gowo tells everyone else.
         frame.contentWindow?.postMessage(seek ? { api: 'seek', set: time } : { api: action }, new URL(frame.src).origin);
@@ -1488,6 +1494,80 @@
             detail: JSON.stringify(seek ? { event: 'userseek', time, data: time } :
                 { event: action === 'play' ? 'userplay' : 'userpause', time: playbackTime })
         }));
+        return true;
+    }
+
+    // Auto-pause. The relay reports who else runs Gowo.io+ here; when someone
+    // drops out and does not come back within a few seconds, the owner's browser
+    // pauses the room and everyone is told why.
+    const autoPausePreferenceKey = 'gowo-plus-auto-pause';
+    const autoPauseToggleId = 'gowo-plus-auto-pause-toggle';
+    const autoPauseGraceMs = 4000;
+    const roomPeers = new Map();
+    const autoPauseTimers = new Map();
+    let autoPausedFor = '';
+    let playbackNoticeText = '';
+
+    function readAutoPausePreference() {
+        try { return localStorage.getItem(autoPausePreferenceKey) !== 'false'; } catch { return true; }
+    }
+
+    const peerFirstName = name => String(name || '').trim().split(/\s+/)[0] || 'Кто-то';
+    const peerPresent = username => [...roomPeers.values()].includes(username);
+
+    function sendRelayPacket(packet) {
+        if (!cursorJoinSent || cursorSocket?.readyState !== WebSocket.OPEN) return;
+        cursorSocket.send(JSON.stringify(packet));
+    }
+
+    // Replaces Gowo's own notice on the player while the room stays paused.
+    function setPlaybackNotice(text) {
+        if (playbackNoticeText === text) return;
+        playbackNoticeText = text;
+        syncRoomToolbar();
+    }
+
+    function showAutoPause(username) {
+        autoPausedFor = username;
+        setPlaybackNotice(`Пауза: ${peerFirstName(username)} не на связи`);
+    }
+
+    function clearAutoPause() {
+        autoPausedFor = '';
+        setPlaybackNotice('');
+    }
+
+    function resetRoomPeers(peers = []) {
+        roomPeers.clear();
+        autoPauseTimers.forEach(clearTimeout);
+        autoPauseTimers.clear();
+        for (const peer of Array.isArray(peers) ? peers : []) {
+            if (typeof peer?.client === 'string') roomPeers.set(peer.client, String(peer.username || '').slice(0, 40));
+        }
+    }
+
+    function handleRoomPeer(message) {
+        if (typeof message.client !== 'string') return;
+        const username = String(message.username || '').slice(0, 40);
+        if (message.present === true) {
+            roomPeers.set(message.client, username);
+            clearTimeout(autoPauseTimers.get(username));
+            autoPauseTimers.delete(username);
+            if (autoPausedFor === username && playbackNoticeText) {
+                setPlaybackNotice(`Пауза: ${peerFirstName(username)} снова на связи`);
+            }
+            return;
+        }
+        roomPeers.delete(message.client);
+        // Still here in another tab, or one of our own other tabs closing.
+        if (peerPresent(username) || username === cursorNickname() || autoPauseTimers.has(username)) return;
+        if (playbackRole() !== 'controller' || !readAutoPausePreference() || !playbackPlaying) return;
+        autoPauseTimers.set(username, setTimeout(() => {
+            autoPauseTimers.delete(username);
+            if (peerPresent(username) || !readAutoPausePreference() || !commandRoomPlayback('pause')) return;
+            showAutoPause(username);
+            sendRelayPacket({ type: 'autopause', client: message.client, username });
+        }, autoPauseGraceMs));
     }
 
     window.addEventListener('message', event => {
@@ -1516,7 +1596,10 @@
         if (typeof data.event !== 'string') return;
         if (data.event === 'duration' && Number(data.duration) > 0) playbackDuration = Number(data.duration);
         if (data.event === 'time' && Number.isFinite(Number(data.data))) playbackTime = Number(data.data);
-        if (data.event === 'play') playbackPlaying = true;
+        if (data.event === 'play') {
+            playbackPlaying = true;
+            clearAutoPause();
+        }
         if (['pause', 'end', 'stop'].includes(data.event)) playbackPlaying = false;
         const action = { userpause: 'pause', userplay: 'play', userseek: 'seek' }[data.event];
         if (!action) return;
@@ -1525,36 +1608,47 @@
         requestPlayback(action, time);
     });
 
-    function injectSharedPauseSetting() {
-        const form = document.querySelector('app-chat-settings-room .settings form');
-        const existing = document.getElementById(sharedPauseToggleId);
+    // An owner-only switch, on unless turned off, remembered per browser.
+    function syncOwnerToggle(form, id, key, label, anchor) {
+        const existing = document.getElementById(id);
         // Only whoever controls the room has something to allow.
         if (!form || playbackRole() !== 'controller') {
             existing?.closest('.gowo-setting-row')?.remove();
             return;
         }
+        let enabled = true;
+        try { enabled = localStorage.getItem(key) !== 'false'; } catch {}
         if (existing) {
-            if (existing.checked !== readSharedPausePreference()) existing.checked = readSharedPausePreference();
+            if (existing.checked !== enabled) existing.checked = enabled;
             return;
         }
-        const anchor = document.getElementById(hideCallButtonToggleId)?.closest('.gowo-setting-row') ||
-            form.firstElementChild;
         if (!anchor) return;
         const row = document.createElement('div');
         row.className = 'gowo-setting-row';
         row.innerHTML = `
-            <label class="gowo-setting-label" for="${sharedPauseToggleId}">
-                <input type="checkbox" id="${sharedPauseToggleId}">
+            <label class="gowo-setting-label" for="${id}">
+                <input type="checkbox" id="${id}">
                 <span class="gowo-switch" aria-hidden="true"></span>
-                <span>Разрешить всем ставить на паузу и перематывать</span>
+                <span></span>
             </label>
         `;
+        row.querySelector('span:last-child').textContent = label;
         anchor.after(row);
         const toggle = row.querySelector('input');
-        toggle.checked = readSharedPausePreference();
+        toggle.checked = enabled;
         toggle.addEventListener('change', () => {
-            try { localStorage.setItem(sharedPausePreferenceKey, String(toggle.checked)); } catch {}
+            try { localStorage.setItem(key, String(toggle.checked)); } catch {}
         });
+    }
+
+    function injectPlaybackSettings() {
+        const form = document.querySelector('app-chat-settings-room .settings form');
+        syncOwnerToggle(form, sharedPauseToggleId, sharedPausePreferenceKey,
+            'Разрешить всем ставить на паузу и перематывать',
+            document.getElementById(hideCallButtonToggleId)?.closest('.gowo-setting-row') || form?.firstElementChild);
+        syncOwnerToggle(form, autoPauseToggleId, autoPausePreferenceKey,
+            'Ставить на паузу, если кто-то отключился',
+            document.getElementById(sharedPauseToggleId)?.closest('.gowo-setting-row'));
     }
 
     function syncRoomToolbar(force = false) {
@@ -1596,7 +1690,7 @@
         }));
         const message = {
             source: toolbarBridgeMarker, type: 'state', platforms,
-            warning: playerNotice(player.querySelector('.danger-message')?.textContent.trim() || ''),
+            warning: playbackNoticeText || playerNotice(player.querySelector('.danger-message')?.textContent.trim() || ''),
             canRefresh: Boolean(player.querySelector('app-icon-refresh-2'))
         };
         const signature = JSON.stringify(message);
@@ -2011,6 +2105,15 @@
             }
             if (message?.type === 'joined') {
                 cursorRelayJoined = true;
+                resetRoomPeers(message.peers);
+                return;
+            }
+            if (message?.type === 'peer') {
+                handleRoomPeer(message);
+                return;
+            }
+            if (message?.type === 'autopause') {
+                if (typeof message.username === 'string') showAutoPause(message.username.slice(0, 40));
                 return;
             }
             if (message?.type === 'history') {
@@ -2041,25 +2144,47 @@
         });
     }
 
-    async function startCursorRelay() {
-        if (cursorRelayStarted) return;
-        cursorRelayStarted = true;
-        const alias = getRoomAlias();
+    // Leaves the relay room of the previous Gowo room and joins the new one
+    // (none, outside a room).
+    let cursorRoomSwitch = 0;
+    async function switchCursorRoom(alias) {
+        const switchId = ++cursorRoomSwitch;
+        const socket = cursorSocket;
+        cursorSocket = null;
+        cursorRelayJoined = false;
+        cursorJoinSent = false;
+        clearTimeout(cursorReconnectTimer);
+        cursorReconnectTimer = null;
+        socket?.close();
+        stopCursorDrawing();
+        cursorPainter.clear();
+        resetRoomPeers();
+        clearAutoPause();
+        clearTimeout(chatSync.timer);
+        chatSync.timer = null;
+        chatSync.requested = chatSync.ready = false;
+        for (const set of [chatSync.known, chatSync.queue, chatSync.sent, chatSync.gone, chatSync.goneSeen]) set.clear();
+        cursorRoomKey = '';
+        cursorRoomAlias = '';
+        cursorRelayStarted = Boolean(alias);
         if (!alias) return;
         try {
             const [roomKey] = await Promise.all([
                 hashCursorRoom(alias),
-                loadCursorIdentity()
+                cursorIdentityName ? null : loadCursorIdentity()
             ]);
+            if (switchId !== cursorRoomSwitch) return;
             cursorRoomKey = roomKey;
             cursorRoomAlias = alias;
+            cursorReconnectDelay = 1000;
             connectCursorRelay();
         } catch {
-            cursorRelayStarted = false;
+            if (switchId === cursorRoomSwitch) cursorRelayStarted = false;
         }
     }
 
     document.addEventListener('keydown', event => {
+        if (!enhancedRoom) return;
         if (!isCursorDrawKey(event)) {
             // Ctrl+C, Ctrl+V and other shortcuts are not drawing.
             if (event.ctrlKey && cursorHolding) stopCursorDrawing();
@@ -2676,6 +2801,8 @@
             if (room.pending.size > chatHistoryLimit) room.pending.delete(room.pending.keys().next().value);
         }
         if (!fresh.length) return;
+        // Not the replay a freshly shown chat starts with, nor our own.
+        if (room.captured) noteUnread(fresh.filter(({ entry }) => !isOwnAuthor(entry.author)).length);
         // Gowo replays recent messages in one burst after joining. Later
         // arrivals, a few at a time, were witnessed as they were sent.
         const live = room.captured ? fresh.length <= 3 :
@@ -3087,6 +3214,36 @@
         startChatEdit(entry);
     }, true);
 
+    // Messages that arrived while this tab was not being looked at, counted in
+    // the page title so the taskbar shows them.
+    const unreadTitlePrefix = /^\(\d+\+?\) /;
+    let unreadCount = 0;
+    const attendingChat = () => document.visibilityState === 'visible' && document.hasFocus();
+
+    function syncUnreadTitle() {
+        if (unreadCount && attendingChat()) unreadCount = 0;
+        const base = document.title.replace(unreadTitlePrefix, '');
+        const wanted = unreadCount ? `(${unreadCount > 99 ? '99+' : unreadCount}) ${base}` : base;
+        if (document.title !== wanted) document.title = wanted;
+    }
+
+    function noteUnread(count) {
+        if (!count || attendingChat()) return;
+        unreadCount += count;
+        syncUnreadTitle();
+    }
+
+    function clearUnread() {
+        if (!unreadCount) return;
+        unreadCount = 0;
+        syncUnreadTitle();
+    }
+
+    window.addEventListener('focus', () => { if (attendingChat()) clearUnread(); });
+    document.addEventListener('visibilitychange', () => { if (attendingChat()) clearUnread(); });
+    // Focus can also return through the player, which the page does not hear.
+    setInterval(() => { if (unreadCount && attendingChat()) clearUnread(); }, 1000);
+
     function syncChatHistory() {
         if (chatEdit && !document.getElementById(chatEditBarId)) chatEdit = null;
         let alias;
@@ -3286,7 +3443,9 @@
         }
     }
 
-    once('css', () => injectCSS(`
+    // Room styles; switched off on Gowo's other pages.
+    let roomStyle = null;
+    once('css', () => { roomStyle = injectCSS(`
         body {  background: #000;  }
         .danger-message {  background: #000!important;  }
 
@@ -3854,13 +4013,32 @@
             outline: 2px solid #b76cff;
             outline-offset: 2px;
         }
-    `));
+    `); });
+    if (roomStyle) roomStyle.media = 'not all';
 
-    function apply() {
+    // Gowo is a single-page app: it can move into, out of and between rooms
+    // without loading a page. Only a room is enhanced.
+    let enhancedRoom = '';
+    function syncRoute() {
+        let alias = '';
+        try { alias = getRoomAlias(); } catch {}
+        if (alias !== enhancedRoom) {
+            enhancedRoom = alias;
+            if (roomStyle) roomStyle.media = alias ? 'all' : 'not all';
+            unreadCount = 0;
+            syncUnreadTitle();
+            switchCursorRoom(alias);
+        }
+        return Boolean(alias);
+    }
+
+    function apply(records = []) {
+        if (!syncRoute()) return;
+        captureChatDeletions(records);
         removeInjectedAds();
         syncRoomToolbar();
         injectCallButtonSetting();
-        injectSharedPauseSetting();
+        injectPlaybackSettings();
         injectEmotePicker();
         syncChatHistory();
         injectChatHistorySetting();
@@ -3885,12 +4063,10 @@
 
         const textarea = document.querySelector('textarea');
         if (textarea) textarea.placeholder = 'Текст';
+        if (unreadCount) syncUnreadTitle();
     }
 
-    const obs = new MutationObserver(records => {
-        captureChatDeletions(records);
-        apply();
-    });
+    const obs = new MutationObserver(apply);
 
     obs.observe(document.documentElement, {
         childList: true,
@@ -3900,7 +4076,6 @@
         attributeFilter: ['src']
     });
 
-    startCursorRelay();
     apply();
 })();
 // End Gowo.io+ runtime v1

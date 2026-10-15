@@ -12,6 +12,9 @@ const maxClientsPerRoom = 64;
 const maxMessagesPerSecond = 60;
 const maxPayload = 32 * 1024;
 const messageIdLimit = 1024;
+// Browsers answer pings on their own, even from a background tab, so a silent
+// connection is a dropped one: find it within one or two beats.
+const heartbeatMs = 5000;
 
 function cleanName(value) {
     return String(value || 'Anonymous')
@@ -119,12 +122,15 @@ export function createPluginRelay(options = {}) {
         peers?.delete(socket);
         if (peers?.size === 0) rooms.delete(room);
         socket.gowo.room = '';
+        // A tab that reconnected before its old connection timed out is still here.
+        if ([...(peers || [])].some(peer => peer.gowo.client === client)) return;
         broadcast(room, {
             type: 'cursor',
             client,
             username,
             visible: false
         }, socket);
+        broadcast(room, { type: 'peer', client, username, present: false }, socket);
     }
 
     server.on('upgrade', (request, socket, head) => {
@@ -195,10 +201,19 @@ export function createPluginRelay(options = {}) {
                 state.room = message.room;
                 state.client = message.client;
                 state.username = cleanName(message.username);
+                const returning = [...room].some(peer => peer.gowo.client === state.client);
                 room.add(socket);
                 rooms.set(state.room, room);
                 clearTimeout(joinDeadline);
-                send(socket, { type: 'joined' });
+                // Who else runs Gowo.io+ here, and news of us for them.
+                send(socket, {
+                    type: 'joined',
+                    peers: [...room].filter(peer => peer !== socket)
+                        .map(peer => ({ client: peer.gowo.client, username: peer.gowo.username }))
+                });
+                if (!returning) {
+                    broadcast(state.room, { type: 'peer', client: state.client, username: state.username, present: true }, socket);
+                }
                 return;
             }
 
@@ -228,6 +243,13 @@ export function createPluginRelay(options = {}) {
                 const row = typeof message.id === 'string' && message.id.length <= messageIdLimit ?
                     store.remove(state.room, message.id) : null;
                 if (row) broadcast(state.room, { type: 'history', messages: [row] });
+                return;
+            }
+            if (message?.type === 'autopause') {
+                // The owner's browser paused because someone dropped out; say who.
+                if (clientPattern.test(message.client || '')) {
+                    broadcast(state.room, { type: 'autopause', client: message.client, username: cleanName(message.username) }, socket);
+                }
                 return;
             }
             if (message?.type === 'edit') {
@@ -290,7 +312,7 @@ export function createPluginRelay(options = {}) {
             socket.isAlive = false;
             socket.ping();
         }
-    }, 30000);
+    }, heartbeatMs);
     heartbeat.unref();
 
     return {

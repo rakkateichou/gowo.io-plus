@@ -4,7 +4,7 @@
 // @description  Gowo.io enhancer — loads the latest features on each page load
 // @version      2026.9.5.21
 // @author       rakkateichou
-// @match        *://gowo.io/orooms/*
+// @match        *://gowo.io/*
 // @match        *://*.obrut.show/embed/*
 // @match        *://alloha.gowo.tv/*
 // @run-at       document-start

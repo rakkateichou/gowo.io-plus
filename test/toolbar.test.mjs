@@ -30,7 +30,7 @@ function harness(frame = false, html = frame ? frameHtml : parentHtml, url = fra
     const parentWindow = { postMessage: (message, origin) => messages.push({ message, origin }) };
     const window = {
         document, innerWidth: 1000, innerHeight: 700,
-        location: new URL(frame ? url : 'https://gowo.io/fixture'),
+        location: new URL(frame ? url : 'https://gowo.io/orooms/fixture'),
         parent: parentWindow,
         getComputedStyle(element) {
             return {
@@ -62,7 +62,7 @@ function harness(frame = false, html = frame ? frameHtml : parentHtml, url = fra
         HTMLDivElement: dom.HTMLDivElement, HTMLIFrameElement: dom.HTMLIFrameElement,
         localStorage: storage, sessionStorage: storage, TextEncoder, Intl,
         requestAnimationFrame: callback => { raf.push(callback); return raf.length; },
-        cancelAnimationFrame() {}, setTimeout: () => 1, clearTimeout() {},
+        cancelAnimationFrame() {}, setTimeout: () => 1, setInterval: () => 1, clearTimeout() {},
         MutationObserver: class {
             constructor(callback) { this.callback = callback; observers.push(this); }
             observe() {}

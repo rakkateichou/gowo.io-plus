@@ -11,6 +11,8 @@ A userscript for Tampermonkey and Safari Userscripts that enhances Gowo.io rooms
 - Messages sent while you were away, caught up from the Gowo.io+ relay when you return
 - Editing your own messages, for everyone in the room who runs Gowo.io+
 - Pausing, resuming and seeking for everyone, not only the room owner
+- An automatic pause, with the reason on the player, when someone drops out
+- The number of unread chat messages in the tab title (and taskbar) while you look away
 - Reply text always starts below its quoted message
 - First-name-only quoted authors, using their chat nickname colour
 - Simple, uncircled chat-header icons with the original controls and tooltips
@@ -103,6 +105,22 @@ browser, which repeats it as its own, so Gowo moves the whole room as usual.
 - Changing the episode stays with the owner.
 - The player notices no longer name the administrator: a paused room just says
   **Пауза**.
+
+### Automatic pause
+
+When someone running Gowo.io+ drops out of the room and is not back within
+about four seconds, the owner's browser pauses the room and everyone's player
+says why, for example **Пауза: Аня не на связи**. When they return it reads
+**Пауза: Аня снова на связи**; playback resumes when someone presses play.
+
+- The relay notices a connection that went silent within about ten seconds, and
+  a closed or reloaded tab at once. A reload that is back within the four
+  seconds does not pause.
+- Closing one of several tabs of the same person does not count.
+- It needs the owner (or an admin) in the room with Gowo.io+, and only notices
+  people who run Gowo.io+.
+- The owner can switch it off with **Ставить на паузу, если кто-то отключился**
+  in the room settings. It is on by default.
 
 ## Shared chat history
 
@@ -202,6 +220,11 @@ After migration, routine feature updates need only a page refresh.
 
 The loader itself still has `@updateURL`, `@downloadURL`, and an automatically
 bumped `@version` for occasional loader or permission changes.
+
+The loader runs on every Gowo page, because Gowo moves between pages without
+reloading: entering a room from the feed or "My rooms" would otherwise leave it
+unenhanced until a refresh. The runtime changes nothing outside rooms and
+switches its room features on and off as you move between pages.
 
 ## Development
 

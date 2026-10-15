@@ -49,7 +49,7 @@ function harness() {
         Object.defineProperty(author, 'style', { value: wrapper });
     }
     const observers = [];
-    const window = { document, location: new URL('https://gowo.io/fixture'), addEventListener() {} };
+    const window = { document, location: new URL('https://gowo.io/orooms/fixture'), addEventListener() {} };
     window.self = window.top = window;
     const storage = { getItem: () => null, setItem() {} };
     const originalIcons = [...document.querySelectorAll('.chat-header img')];
@@ -57,7 +57,7 @@ function harness() {
         window, document, URL, console, crypto: webcrypto, TextEncoder, Intl,
         HTMLDivElement: dom.HTMLDivElement, HTMLIFrameElement: dom.HTMLIFrameElement,
         NodeFilter: { SHOW_TEXT: 4 }, localStorage: storage, sessionStorage: storage,
-        requestAnimationFrame: () => 1, cancelAnimationFrame() {}, setTimeout: () => 1, clearTimeout() {},
+        requestAnimationFrame: () => 1, cancelAnimationFrame() {}, setTimeout: () => 1, setInterval: () => 1, clearTimeout() {},
         MutationObserver: class {
             constructor(callback) { observers.push(callback); }
             observe() {}

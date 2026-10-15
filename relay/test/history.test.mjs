@@ -127,11 +127,12 @@ async function connect(port, client) {
     });
     await once(socket, 'open');
     const any = () => inbox.length ? Promise.resolve(inbox.shift()) : new Promise(resolve => waiting.push(resolve));
-    // Peers leaving also produce cursor packets; these tests follow the chat log.
+    // Peers coming and going also produce cursor and presence packets; these
+    // tests follow the chat log.
     const next = async () => {
         for (;;) {
             const message = await any();
-            if (message.type !== 'cursor') return message;
+            if (message.type !== 'cursor' && message.type !== 'peer') return message;
         }
     };
     const say = message => socket.send(JSON.stringify(message));
@@ -229,5 +230,49 @@ test('a message one client reports reaches the room now and an absent client lat
     alice.socket.close();
     late.socket.close();
     await Promise.all([once(alice.socket, 'close'), once(late.socket, 'close')]);
+    await relay.close();
+});
+
+test('everyone learns who else is in the room, who joins, who drops out, and why the room paused', async () => {
+    const relay = createPluginRelay();
+    relay.server.listen(0, '127.0.0.1');
+    await once(relay.server, 'listening');
+    const { port } = relay.server.address();
+    const open = async (client, username) => {
+        const socket = new WebSocket(`ws://127.0.0.1:${port}/gowo-plugin`, { origin: 'https://gowo.io' });
+        const inbox = [], waiting = [];
+        socket.on('message', data => {
+            const message = JSON.parse(data.toString());
+            if (message.type === 'cursor') return;
+            const next = waiting.shift();
+            if (next) next(message); else inbox.push(message);
+        });
+        await once(socket, 'open');
+        socket.send(JSON.stringify({ type: 'join', room, client, username }));
+        const next = () => inbox.length ? Promise.resolve(inbox.shift()) : new Promise(resolve => waiting.push(resolve));
+        return { socket, next, say: message => socket.send(JSON.stringify(message)), joined: await next() };
+    };
+    const owner = await open('1'.repeat(32), 'Руслан Эммм');
+    assert.deepEqual(owner.joined, { type: 'joined', peers: [] });
+    const friend = await open('2'.repeat(32), 'Аня Пример');
+    assert.deepEqual(friend.joined, { type: 'joined', peers: [{ client: '1'.repeat(32), username: 'Руслан Эммм' }] });
+    assert.deepEqual(await owner.next(), { type: 'peer', client: '2'.repeat(32), username: 'Аня Пример', present: true });
+
+    // The same tab reconnecting before its old connection is gone is not news.
+    const again = await open('2'.repeat(32), 'Аня Пример');
+    friend.socket.close();
+    await once(friend.socket, 'close');
+    again.socket.close();
+    assert.deepEqual(await owner.next(), { type: 'peer', client: '2'.repeat(32), username: 'Аня Пример', present: false });
+
+    const third = await open('3'.repeat(32), 'Третий');
+    await owner.next();
+    owner.say({ type: 'autopause', client: 'nope', username: 'x' });
+    owner.say({ type: 'autopause', client: '2'.repeat(32), username: 'Аня Пример' });
+    assert.deepEqual(await third.next(), { type: 'autopause', client: '2'.repeat(32), username: 'Аня Пример' });
+
+    owner.socket.close();
+    third.socket.close();
+    await Promise.all([once(owner.socket, 'close'), once(third.socket, 'close')]);
     await relay.close();
 });

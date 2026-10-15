@@ -32,13 +32,15 @@ const nativeMessage = (id, formatted = false, omitNickname = false) => `
     </div>
   </div>`;
 
-function harness({ database = new IDBFactory(), room = 'room-a', content = '', html, clock = { now: 1800000000000 }, relay = false, identity = '', saved = null } = {}) {
+function harness({ database = new IDBFactory(), room = 'room-a', content = '', html, clock = { now: 1800000000000 }, relay = false, identity = '', saved = null, attention = { visible: true, focused: true }, url = `https://gowo.io/orooms/${room}?platform=turbo` } = {}) {
     const dom = parseHTML(`<!doctype html><html><head></head><body>${html ?? chat(content)}</body></html>`);
     const { document } = dom;
     for (const input of document.querySelectorAll('textarea')) {
         input.setSelectionRange = () => {};
         input.focus = () => {};
     }
+    Object.defineProperty(document, 'visibilityState', { get: () => attention.visible ? 'visible' : 'hidden' });
+    document.hasFocus = () => attention.focused;
     // Signed in: the script learns its own name from Gowo's profile endpoint.
     if (identity) Object.defineProperty(document, 'cookie', { value: 'token=test-token' });
     const [name, surname] = identity.split(' ');
@@ -54,14 +56,15 @@ function harness({ database = new IDBFactory(), room = 'room-a', content = '', h
         addEventListener(type, handler) { this.handlers.set(type, handler); }
         send(data) { this.sent.push(JSON.parse(data)); }
         open() { this.readyState = 1; this.handlers.get('open')({}); }
+        close() { this.readyState = 3; this.closed = true; }
         receive(message) { this.handlers.get('message')({ data: JSON.stringify(message) }); }
         // Chat-sync packets only; cursor diagnostics are not under test here.
-        take() { return this.sent.splice(0).filter(packet => ['join', 'sync', 'seen', 'gone', 'edit', 'control'].includes(packet.type)); }
+        take() { return this.sent.splice(0).filter(packet => ['join', 'sync', 'seen', 'gone', 'edit', 'control', 'autopause'].includes(packet.type)); }
     }
     const wrappedStyles = new WeakSet();
     const metrics = { extra: 0 };
     const window = {
-        document, location: new URL(`https://gowo.io/orooms/${room}?platform=turbo`), indexedDB: database,
+        document, location: new URL(url), indexedDB: database,
         confirm: () => true,
         addEventListener(type, callback) {
             if (!listeners.has(type)) listeners.set(type, []);
@@ -111,7 +114,7 @@ function harness({ database = new IDBFactory(), room = 'room-a', content = '', h
         NodeFilter: { SHOW_TEXT: 4 }, localStorage: storage, sessionStorage: storage,
         requestAnimationFrame: callback => { frames.push(callback); return frames.length; },
         cancelAnimationFrame() {}, clearTimeout() {},
-        setTimeout: relay ? callback => timers.push(callback) : () => 1,
+        setTimeout: relay ? callback => timers.push(callback) : () => 1, setInterval: () => 1,
         ...(relay ? { WebSocket: FakeSocket } : {}),
         Event: dom.Event, HTMLTextAreaElement: dom.HTMLTextAreaElement,
         fetch: async () => ({ ok: Boolean(identity), json: async () => ({ name, surname }) }),
@@ -957,4 +960,133 @@ test('the owner repeats a viewer request as its own, unless it is switched off',
     socket.receive({ type: 'control', action: 'pause' });
     socket.receive({ type: 'control', action: 'seek', time: 10 });
     assert.deepEqual([commands(), requests], [[], []]);
+});
+
+test('outside a room nothing is changed; entering and leaving rooms in place switches everything on and off', async () => {
+    const h = harness({ relay: true, url: 'https://gowo.io/feeds', html: '<p class="text-muted">feed</p><textarea placeholder="Пост"></textarea>' });
+    await h.settle();
+    const roomStyle = () => [...h.document.querySelectorAll('style')].find(style => style.textContent.includes('.gowo-history-message'));
+    assert.equal(roomStyle().media, 'not all', 'room styles are off outside rooms');
+    assert.ok(h.document.querySelector('.text-muted'), 'other pages are left alone');
+    assert.equal(h.document.querySelector('textarea').placeholder, 'Пост');
+    assert.equal(h.sockets.length, 0, 'no relay outside rooms');
+
+    // Gowo moves into a room without loading a page.
+    h.window.location = new URL('https://gowo.io/orooms/room-a?platform=turbo');
+    await h.settle();
+    assert.equal(roomStyle().media, 'all');
+    assert.equal(h.document.querySelector('.text-muted'), null);
+    assert.equal(h.sockets.length, 1);
+    h.sockets[0].open();
+    assert.equal(h.sockets[0].take()[0].type, 'join');
+
+    h.window.location = new URL('https://gowo.io/orooms/room-b');
+    await h.settle();
+    assert.equal(h.sockets[0].closed, true, 'the old room is left');
+    assert.equal(h.sockets.length, 2);
+
+    h.window.location = new URL('https://gowo.io/my-rooms');
+    await h.settle();
+    assert.equal(h.sockets[1].closed, true);
+    assert.equal(roomStyle().media, 'not all');
+    h.tick();
+    assert.equal(h.sockets.length, 2, 'and no reconnecting outside rooms');
+});
+
+test('messages from others arriving while the tab is not looked at are counted in the title', async () => {
+    const attention = { visible: true, focused: true };
+    const h = harness({ identity: 'Руслан Эммм', attention, html: editRoom(message('m1', 'old', 'Друг Другов')) });
+    h.document.title = 'Комната | Фильм';
+    await h.settle();
+    h.clock.now += 60000;
+    h.add('m2', 'seen', 'Друг Другов');
+    assert.equal(h.document.title, 'Комната | Фильм', 'nothing to count while watching');
+
+    attention.focused = false;
+    h.add('m3', 'one', 'Друг Другов');
+    h.add('m4', 'mine', 'Руслан Эммм');
+    h.add('m5', 'two', 'Друг Другов');
+    assert.equal(h.document.title, '(2) Комната | Фильм');
+    // Gowo setting its own title keeps the count in front.
+    h.document.title = 'Комната | Другой фильм';
+    h.apply();
+    assert.equal(h.document.title, '(2) Комната | Другой фильм');
+
+    attention.focused = true;
+    h.emit('focus');
+    assert.equal(h.document.title, 'Комната | Другой фильм');
+});
+
+function warningsOf(h) {
+    const warnings = [];
+    const frame = h.document.querySelector('iframe').contentWindow;
+    const post = frame.postMessage;
+    frame.postMessage = (message, origin) => {
+        if (message.type === 'state') warnings.push(message.warning);
+        post(message, origin);
+    };
+    return () => { h.apply(); return warnings.at(-1); };
+}
+
+test('the owner pauses the room when someone drops out, says why, and notes their return', async () => {
+    const { h, socket, player, commands, requests } = await watching(0);
+    const warning = warningsOf(h);
+    const friend = { client: '2'.repeat(32), username: 'Аня Пример' };
+    socket.receive({ type: 'joined', peers: [friend] });
+    player({ event: 'play', time: 0 });
+    player({ event: 'time', data: 600 });
+
+    // A reload that comes back within a few seconds is not a drop.
+    socket.receive({ type: 'peer', ...friend, present: false });
+    socket.receive({ type: 'peer', ...friend, present: true });
+    h.tick();
+    assert.deepEqual([commands(), requests], [[], []]);
+
+    socket.receive({ type: 'peer', ...friend, present: false });
+    h.tick();
+    assert.deepEqual(commands().map(item => item.message), [{ api: 'pause' }]);
+    assert.deepEqual(requests.splice(0), [{ event: 'userpause', time: 600 }]);
+    assert.deepEqual(socket.take(), [{ type: 'autopause', ...friend }]);
+    player({ event: 'pause', time: 600 });
+    assert.equal(warning(), 'Пауза: Аня не на связи');
+
+    socket.receive({ type: 'peer', ...friend, present: true });
+    assert.equal(warning(), 'Пауза: Аня снова на связи');
+    player({ event: 'play', time: 600 });
+    assert.equal(warning(), 'Пауза', 'back to the plain notice once playing again');
+});
+
+test('auto-pause skips other tabs of the same person, a paused room, and an owner who turned it off; viewers are told why', async () => {
+    const friend = { client: '2'.repeat(32), username: 'Аня Пример' };
+    const owner = await watching(0);
+    owner.socket.receive({ type: 'joined', peers: [friend, { client: '3'.repeat(32), username: 'Аня Пример' }] });
+    owner.player({ event: 'play', time: 0 });
+    owner.socket.receive({ type: 'peer', ...friend, present: false });
+    owner.h.tick();
+    assert.deepEqual(owner.commands(), [], 'still here in another tab');
+    owner.player({ event: 'pause', time: 0 });
+    owner.socket.receive({ type: 'peer', client: '3'.repeat(32), username: 'Аня Пример', present: false });
+    owner.h.tick();
+    assert.deepEqual(owner.commands(), [], 'already paused');
+
+    const off = await watching(0, new Map([['gowo-plus-auto-pause', 'false']]));
+    off.socket.receive({ type: 'joined', peers: [friend] });
+    off.player({ event: 'play', time: 0 });
+    off.socket.receive({ type: 'peer', ...friend, present: false });
+    off.h.tick();
+    assert.deepEqual(off.commands(), []);
+    const toggle = off.h.document.getElementById('gowo-plus-auto-pause-toggle');
+    assert.equal(toggle.checked, false);
+    assert.match(toggle.closest('label').textContent, /Ставить на паузу, если кто-то отключился/);
+
+    const viewer = await watching(1);
+    assert.equal(viewer.h.document.getElementById('gowo-plus-auto-pause-toggle'), null);
+    const warning = warningsOf(viewer.h);
+    viewer.socket.receive({ type: 'joined', peers: [friend] });
+    viewer.player({ event: 'play', time: 0 });
+    viewer.socket.receive({ type: 'peer', ...friend, present: false });
+    viewer.h.tick();
+    assert.deepEqual(viewer.commands(), [], 'only the owner acts');
+    viewer.socket.receive({ type: 'autopause', ...friend });
+    assert.equal(warning(), 'Пауза: Аня не на связи');
 });

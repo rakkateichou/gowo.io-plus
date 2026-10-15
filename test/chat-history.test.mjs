@@ -32,7 +32,7 @@ const nativeMessage = (id, formatted = false, omitNickname = false) => `
     </div>
   </div>`;
 
-function harness({ database = new IDBFactory(), room = 'room-a', content = '', html, clock = { now: 1800000000000 }, relay = false, identity = '', saved = null, attention = { visible: true, focused: true }, url = `https://gowo.io/orooms/${room}?platform=turbo` } = {}) {
+function harness({ database = new IDBFactory(), room = 'room-a', content = '', html, clock = { now: 1800000000000 }, relay = false, identity = '', saved = null, attention = { visible: true, focused: true }, url = `https://gowo.io/orooms/${room}?platform=turbo`, gender } = {}) {
     const dom = parseHTML(`<!doctype html><html><head></head><body>${html ?? chat(content)}</body></html>`);
     const { document } = dom;
     for (const input of document.querySelectorAll('textarea')) {
@@ -117,7 +117,7 @@ function harness({ database = new IDBFactory(), room = 'room-a', content = '', h
         setTimeout: relay ? callback => timers.push(callback) : () => 1, setInterval: () => 1,
         ...(relay ? { WebSocket: FakeSocket } : {}),
         Event: dom.Event, HTMLTextAreaElement: dom.HTMLTextAreaElement,
-        fetch: async () => ({ ok: Boolean(identity), json: async () => ({ name, surname }) }),
+        fetch: async () => ({ ok: Boolean(identity), json: async () => ({ data: { name, surname, gender } }) }),
         MutationObserver: class {
             constructor(callback) { observers.push(callback); }
             observe() {}
@@ -1094,4 +1094,36 @@ test('auto-pause skips other tabs of the same person, a paused room, and an owne
     assert.deepEqual(viewer.commands(), [], 'only the owner acts');
     viewer.socket.receive({ type: 'autopause', ...friend });
     assert.equal(warning(), 'Пауза: Аня покинул(а) комнату');
+});
+
+test('the notice agrees with the gender people set in their Gowo profile, and each browser shares its own', async () => {
+    const own = harness({ relay: true, identity: 'Аня Пример', gender: 1 });
+    await own.settle();
+    own.sockets[0].open();
+    assert.equal(own.sockets[0].take()[0].gender, 'f');
+    const unset = harness({ relay: true, identity: 'Кто Угодно' });
+    await unset.settle();
+    unset.sockets[0].open();
+    assert.equal('gender' in unset.sockets[0].take()[0], false);
+
+    const { h, socket, player } = await watching(0);
+    const warning = warningsOf(h);
+    const friend = { client: '2'.repeat(32), username: 'Аня Пример', gender: 'f' };
+    const brother = { client: '3'.repeat(32), username: 'Женя Пример', gender: 'm' };
+    socket.receive({ type: 'joined', peers: [friend, brother] });
+    player({ event: 'play', time: 0 });
+    socket.receive({ type: 'peer', ...friend, present: false });
+    h.tick();
+    assert.deepEqual(socket.take(), [{ type: 'autopause', ...friend }]);
+    player({ event: 'pause', time: 0 });
+    assert.equal(warning(), 'Пауза: Аня покинула комнату');
+    socket.receive({ type: 'peer', ...friend, present: true });
+    assert.equal(warning(), 'Пауза: Аня вернулась');
+    player({ event: 'play', time: 0 });
+    socket.receive({ type: 'peer', ...brother, present: false });
+    h.tick();
+    player({ event: 'pause', time: 0 });
+    assert.equal(warning(), 'Пауза: Женя покинул комнату');
+    socket.receive({ type: 'peer', ...brother, present: true });
+    assert.equal(warning(), 'Пауза: Женя вернулся');
 });

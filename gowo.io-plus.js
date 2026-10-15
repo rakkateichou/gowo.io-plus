@@ -1513,7 +1513,7 @@
     }
 
     const peerFirstName = name => String(name || '').trim().split(/\s+/)[0] || 'Кто-то';
-    const peerPresent = username => [...roomPeers.values()].includes(username);
+    const peerPresent = username => [...roomPeers.values()].some(peer => peer.username === username);
 
     function sendRelayPacket(packet) {
         if (!cursorJoinSent || cursorSocket?.readyState !== WebSocket.OPEN) return;
@@ -1527,9 +1527,13 @@
         syncRoomToolbar();
     }
 
-    function showAutoPause(username) {
+    // Worded by the gender each person set in their Gowo profile, if known.
+    const peerVerb = (gender, female, male, either) => gender === 'f' ? female : gender === 'm' ? male : either;
+    const peerGender = value => value === 'f' || value === 'm' ? value : '';
+
+    function showAutoPause(username, gender) {
         autoPausedFor = username;
-        setPlaybackNotice(`Пауза: ${peerFirstName(username)} покинул(а) комнату`);
+        setPlaybackNotice(`Пауза: ${peerFirstName(username)} ${peerVerb(gender, 'покинула', 'покинул', 'покинул(а)')} комнату`);
     }
 
     function clearAutoPause() {
@@ -1542,32 +1546,35 @@
         autoPauseTimers.forEach(clearTimeout);
         autoPauseTimers.clear();
         for (const peer of Array.isArray(peers) ? peers : []) {
-            if (typeof peer?.client === 'string') roomPeers.set(peer.client, String(peer.username || '').slice(0, 40));
+            if (typeof peer?.client === 'string') {
+                roomPeers.set(peer.client, { username: String(peer.username || '').slice(0, 40), gender: peerGender(peer.gender) });
+            }
         }
     }
 
     function handleRoomPeer(message) {
         if (typeof message.client !== 'string') return;
         const username = String(message.username || '').slice(0, 40);
+        const gender = peerGender(message.gender);
         if (message.present === true) {
-            roomPeers.set(message.client, username);
+            roomPeers.set(message.client, { username, gender });
             clearTimeout(autoPauseTimers.get(username));
             autoPauseTimers.delete(username);
             if (autoPausedFor === username && playbackNoticeText) {
-                setPlaybackNotice(`Пауза: ${peerFirstName(username)} вернулся(ась)`);
+                setPlaybackNotice(`Пауза: ${peerFirstName(username)} ${peerVerb(gender, 'вернулась', 'вернулся', 'вернулся(ась)')}`);
             }
             return;
         }
         roomPeers.delete(message.client);
         // Still here in another tab, or one of our own other tabs closing.
         if (peerPresent(username) || username === cursorNickname() || autoPauseTimers.has(username)) return;
-        if (autoPausedFor === username && playbackNoticeText) showAutoPause(username);
+        if (autoPausedFor === username && playbackNoticeText) showAutoPause(username, gender);
         if (playbackRole() !== 'controller' || !readAutoPausePreference() || !playbackPlaying) return;
         autoPauseTimers.set(username, setTimeout(() => {
             autoPauseTimers.delete(username);
             if (peerPresent(username) || !readAutoPausePreference() || !commandRoomPlayback('pause')) return;
-            showAutoPause(username);
-            sendRelayPacket({ type: 'autopause', client: message.client, username });
+            showAutoPause(username, gender);
+            sendRelayPacket({ type: 'autopause', client: message.client, username, ...(gender ? { gender } : {}) });
         }, autoPauseGraceMs));
     }
 
@@ -1761,6 +1768,7 @@
     let cursorRenderPoint = null;
     let cursorCaptureOverlay = null;
     let cursorIdentityName = '';
+    let cursorIdentityGender = '';
 
     const cursorClientId = (() => {
         const storageKey = 'gowo-plus-cursor-client-id';
@@ -1816,6 +1824,12 @@
         return '';
     }
 
+    // Gowo asks for it at sign-up: 1 is female, 2 is male.
+    function genderFromProfile(profile) {
+        const gender = Number((profile?.data || profile?.user || profile)?.gender);
+        return gender === 1 ? 'f' : gender === 2 ? 'm' : '';
+    }
+
     async function loadCursorIdentity() {
         const token = getGowoAuthToken();
         if (!token) return;
@@ -1824,7 +1838,9 @@
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (!response.ok) return;
-            cursorIdentityName = cursorNameFromProfile(await response.json());
+            const profile = await response.json();
+            cursorIdentityName = cursorNameFromProfile(profile);
+            cursorIdentityGender = genderFromProfile(profile);
         } catch {
             // Keep the anonymous fallback if Gowo's profile lookup is unavailable.
         }
@@ -2091,7 +2107,8 @@
                 type: 'join',
                 room: cursorRoomKey,
                 client: cursorClientId,
-                username: cursorNickname()
+                username: cursorNickname(),
+                ...(cursorIdentityGender ? { gender: cursorIdentityGender } : {})
             }));
             cursorJoinSent = true;
             requestChatSync();
@@ -2114,7 +2131,7 @@
                 return;
             }
             if (message?.type === 'autopause') {
-                if (typeof message.username === 'string') showAutoPause(message.username.slice(0, 40));
+                if (typeof message.username === 'string') showAutoPause(message.username.slice(0, 40), peerGender(message.gender));
                 return;
             }
             if (message?.type === 'history') {

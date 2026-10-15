@@ -23,6 +23,12 @@ function cleanName(value) {
         .slice(0, 40) || 'Anonymous';
 }
 
+// The grammatical gender each person set in their Gowo profile, for wording
+// such as "покинул" / "покинула"; empty when unknown.
+function cleanGender(value) {
+    return value === 'f' || value === 'm' ? value : '';
+}
+
 function cleanText(value, limit) {
     return String(value ?? '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').slice(0, limit);
 }
@@ -115,8 +121,10 @@ export function createPluginRelay(options = {}) {
         }
     }
 
+    const peerInfo = ({ client, username, gender }) => ({ client, username, ...(gender ? { gender } : {}) });
+
     function leave(socket) {
-        const { room, client, username } = socket.gowo || {};
+        const { room, client, username, gender } = socket.gowo || {};
         if (!room) return;
         const peers = rooms.get(room);
         peers?.delete(socket);
@@ -130,7 +138,7 @@ export function createPluginRelay(options = {}) {
             username,
             visible: false
         }, socket);
-        broadcast(room, { type: 'peer', client, username, present: false }, socket);
+        broadcast(room, { type: 'peer', ...peerInfo({ client, username, gender }), present: false }, socket);
     }
 
     server.on('upgrade', (request, socket, head) => {
@@ -158,6 +166,7 @@ export function createPluginRelay(options = {}) {
             room: '',
             client: '',
             username: 'Anonymous',
+            gender: '',
             rateStartedAt: Date.now(),
             rateCount: 0
         };
@@ -201,6 +210,7 @@ export function createPluginRelay(options = {}) {
                 state.room = message.room;
                 state.client = message.client;
                 state.username = cleanName(message.username);
+                state.gender = cleanGender(message.gender);
                 const returning = [...room].some(peer => peer.gowo.client === state.client);
                 room.add(socket);
                 rooms.set(state.room, room);
@@ -208,11 +218,10 @@ export function createPluginRelay(options = {}) {
                 // Who else runs Gowo.io+ here, and news of us for them.
                 send(socket, {
                     type: 'joined',
-                    peers: [...room].filter(peer => peer !== socket)
-                        .map(peer => ({ client: peer.gowo.client, username: peer.gowo.username }))
+                    peers: [...room].filter(peer => peer !== socket).map(peer => peerInfo(peer.gowo))
                 });
                 if (!returning) {
-                    broadcast(state.room, { type: 'peer', client: state.client, username: state.username, present: true }, socket);
+                    broadcast(state.room, { type: 'peer', ...peerInfo(state), present: true }, socket);
                 }
                 return;
             }
@@ -248,7 +257,10 @@ export function createPluginRelay(options = {}) {
             if (message?.type === 'autopause') {
                 // The owner's browser paused because someone dropped out; say who.
                 if (clientPattern.test(message.client || '')) {
-                    broadcast(state.room, { type: 'autopause', client: message.client, username: cleanName(message.username) }, socket);
+                    broadcast(state.room, {
+                        type: 'autopause',
+                        ...peerInfo({ client: message.client, username: cleanName(message.username), gender: cleanGender(message.gender) })
+                    }, socket);
                 }
                 return;
             }

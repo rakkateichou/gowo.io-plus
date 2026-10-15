@@ -238,7 +238,7 @@ test('everyone learns who else is in the room, who joins, who drops out, and why
     relay.server.listen(0, '127.0.0.1');
     await once(relay.server, 'listening');
     const { port } = relay.server.address();
-    const open = async (client, username) => {
+    const open = async (client, username, gender) => {
         const socket = new WebSocket(`ws://127.0.0.1:${port}/gowo-plugin`, { origin: 'https://gowo.io' });
         const inbox = [], waiting = [];
         socket.on('message', data => {
@@ -248,28 +248,28 @@ test('everyone learns who else is in the room, who joins, who drops out, and why
             if (next) next(message); else inbox.push(message);
         });
         await once(socket, 'open');
-        socket.send(JSON.stringify({ type: 'join', room, client, username }));
+        socket.send(JSON.stringify({ type: 'join', room, client, username, gender }));
         const next = () => inbox.length ? Promise.resolve(inbox.shift()) : new Promise(resolve => waiting.push(resolve));
         return { socket, next, say: message => socket.send(JSON.stringify(message)), joined: await next() };
     };
     const owner = await open('1'.repeat(32), 'Руслан Эммм');
     assert.deepEqual(owner.joined, { type: 'joined', peers: [] });
-    const friend = await open('2'.repeat(32), 'Аня Пример');
+    const friend = await open('2'.repeat(32), 'Аня Пример', 'f');
     assert.deepEqual(friend.joined, { type: 'joined', peers: [{ client: '1'.repeat(32), username: 'Руслан Эммм' }] });
-    assert.deepEqual(await owner.next(), { type: 'peer', client: '2'.repeat(32), username: 'Аня Пример', present: true });
+    assert.deepEqual(await owner.next(), { type: 'peer', client: '2'.repeat(32), username: 'Аня Пример', gender: 'f', present: true });
 
     // The same tab reconnecting before its old connection is gone is not news.
-    const again = await open('2'.repeat(32), 'Аня Пример');
+    const again = await open('2'.repeat(32), 'Аня Пример', 'f');
     friend.socket.close();
     await once(friend.socket, 'close');
     again.socket.close();
-    assert.deepEqual(await owner.next(), { type: 'peer', client: '2'.repeat(32), username: 'Аня Пример', present: false });
+    assert.deepEqual(await owner.next(), { type: 'peer', client: '2'.repeat(32), username: 'Аня Пример', gender: 'f', present: false });
 
-    const third = await open('3'.repeat(32), 'Третий');
-    await owner.next();
+    const third = await open('3'.repeat(32), 'Третий', 'nonsense');
+    assert.deepEqual(await owner.next(), { type: 'peer', client: '3'.repeat(32), username: 'Третий', present: true });
     owner.say({ type: 'autopause', client: 'nope', username: 'x' });
-    owner.say({ type: 'autopause', client: '2'.repeat(32), username: 'Аня Пример' });
-    assert.deepEqual(await third.next(), { type: 'autopause', client: '2'.repeat(32), username: 'Аня Пример' });
+    owner.say({ type: 'autopause', client: '2'.repeat(32), username: 'Аня Пример', gender: 'f' });
+    assert.deepEqual(await third.next(), { type: 'autopause', client: '2'.repeat(32), username: 'Аня Пример', gender: 'f' });
 
     owner.socket.close();
     third.socket.close();

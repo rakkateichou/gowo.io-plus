@@ -684,6 +684,15 @@
         `);
     }
 
+    // Runs fn in the page's own JavaScript world, where the page's scripts
+    // live, with JSON-serializable arguments.
+    function runInPage(fn, ...args) {
+        const script = document.createElement('script');
+        script.textContent = `(${fn})(${args.map(arg => JSON.stringify(arg)).join(', ')});`;
+        (document.head || document.documentElement).append(script);
+        script.remove();
+    }
+
     // Video ads. The player asks ad networks for VAST (or VMAP) documents
     // describing what to play before, during or after the episode. Every such
     // answer is replaced with an empty one, the ordinary "no ad today" reply,
@@ -727,12 +736,7 @@
 
     function installAdResponseFilter() {
         // An ad filter that cannot start must not take the other bridges with it.
-        try {
-            const script = document.createElement('script');
-            script.textContent = `(${pageAdResponseFilter})();`;
-            (document.head || document.documentElement).append(script);
-            script.remove();
-        } catch {}
+        try { runInPage(pageAdResponseFilter); } catch {}
     }
 
     if (window.top !== window.self) {
@@ -768,17 +772,38 @@
         root.querySelectorAll(sel).forEach(el => el.remove());
     }
 
+    // The floating video ad Gowo shows visitors without a subscription, on
+    // every page. Once a page is up, Gowo adds the ad's loader (vak345.com),
+    // which pulls in the ad network's own scripts, and those play the video.
+    const videoAdHosts = ['vak345.com', 'moviead55.ru', '21wiz.com', 'digitalcaramel.com'];
+
+    // Refuses the ad's scripts and frames as they are added. Removing a script
+    // afterwards does not stop it: the browser is already loading it. Gowo and
+    // the ad both add theirs with appendChild or insertBefore.
+    function pageAdScriptBlocker(hosts) {
+        const refused = node => {
+            if (!(node instanceof HTMLScriptElement || node instanceof HTMLIFrameElement) || !node.src) return false;
+            try {
+                const { hostname } = new URL(node.src, location.href);
+                return hosts.some(host => hostname === host || hostname.endsWith(`.${host}`));
+            } catch { return false; }
+        };
+        for (const name of ['appendChild', 'insertBefore']) {
+            const original = Node.prototype[name];
+            Node.prototype[name] = function (node, ...rest) {
+                return refused(node) ? node : original.call(this, node, ...rest);
+            };
+        }
+    }
+    // On every page: the ad is added once, wherever the visit starts.
+    runInPage(pageAdScriptBlocker, videoAdHosts);
+
     function isBlockedAdUrl(value) {
         if (!value) return false;
-
         try {
-            const url = new URL(value, window.location.href);
-            const hostname = url.hostname.toLowerCase();
-
-            return hostname === 'ads.digitalcaramel.com' ||
-                hostname === 'vak345.com' ||
-                hostname.endsWith('.vak345.com') ||
-                (hostname === 'yandex.ru' && url.pathname.startsWith('/ads/'));
+            const { hostname, pathname } = new URL(value, window.location.href);
+            return videoAdHosts.some(host => hostname === host || hostname.endsWith(`.${host}`)) ||
+                (hostname === 'yandex.ru' && pathname.startsWith('/ads/'));
         } catch {
             return false;
         }
@@ -806,8 +831,10 @@
             style.alignItems === 'center';
     }
 
+    // Whatever got past the blocker (added before it was in place, or as
+    // HTML) stops once removed: ad frames, and the video's corner box.
     function removeInjectedAds() {
-        document.querySelectorAll('script[src], iframe[src]').forEach(el => {
+        document.querySelectorAll('iframe[src]').forEach(el => {
             if (isBlockedAdUrl(el.src)) el.remove();
         });
 
@@ -1635,10 +1662,7 @@
     function installPlaybackBridge() {
         if (playbackBridgeInstalled) return;
         playbackBridgeInstalled = true;
-        const script = document.createElement('script');
-        script.textContent = `(${pagePlaybackBridge})(${JSON.stringify(playbackEvent)});`;
-        (document.head || document.documentElement).append(script);
-        script.remove();
+        runInPage(pagePlaybackBridge, playbackEvent);
     }
 
     function handlePlaybackRequest(action, time) {
@@ -2732,10 +2756,7 @@
     function installHistoryReplyBridge() {
         if (historyReplyBridgeInstalled) return;
         historyReplyBridgeInstalled = true;
-        const script = document.createElement('script');
-        script.textContent = `(${pageHistoryReplyBridge})(${JSON.stringify(historyReplyEvent)}, ${JSON.stringify(historyReplySentEvent)});`;
-        (document.head || document.documentElement).append(script);
-        script.remove();
+        runInPage(pageHistoryReplyBridge, historyReplyEvent, historyReplySentEvent);
         document.addEventListener(historyReplySentEvent, () => clearHistoryReply(false));
     }
 

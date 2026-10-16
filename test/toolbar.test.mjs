@@ -544,3 +544,37 @@ test('the player page answers every ad request as if no ad were available', () =
     assert.equal(make(segment, 'arraybuffer').response, segment, 'video data is never read as text');
     assert.equal(make('{"title":"VAST guide"}').responseText, '{"title":"VAST guide"}');
 });
+
+test('Gowo pages refuse the floating video ad\'s scripts and frames as they are added', () => {
+    const h = harness();
+    const [script] = h.injected.filter(element => element.textContent.includes('vak345.com'));
+    assert.ok(script, 'injected into the Gowo page');
+
+    // Stand-ins for the page's DOM classes, so the hook has something to patch.
+    class FakeNode {
+        constructor() { this.children = []; }
+        appendChild(node) { this.children.push(node); return node; }
+        insertBefore(node) { this.children.unshift(node); return node; }
+    }
+    class FakeScript extends FakeNode { constructor(src = '') { super(); this.src = src; } }
+    class FakeFrame extends FakeNode { constructor(src = '') { super(); this.src = src; } }
+    const page = vm.createContext({
+        Node: FakeNode, HTMLScriptElement: FakeScript, HTMLIFrameElement: FakeFrame, URL,
+        location: { href: 'https://gowo.io/orooms/fixture' }
+    });
+    vm.runInContext(script.textContent, page);
+    const body = new FakeNode();
+    const add = (node, method = 'appendChild') => body[method](node) === node && body.children.includes(node);
+
+    // Gowo's call for the ad's loader, and what the loader would pull in.
+    assert.equal(add(new FakeScript('https://vak345.com/s.js?v=c945a95179a9bcb215c27948451092c1')), false);
+    assert.equal(add(new FakeScript('https://code.moviead55.ru/toronto.js'), 'insertBefore'), false);
+    assert.equal(add(new FakeFrame('https://ads.digitalcaramel.com/player.html')), false);
+
+    // Everything else goes in as usual.
+    assert.equal(add(new FakeScript('https://gowo.io/chunk-B5LL5LMC.js')), true);
+    assert.equal(add(new FakeScript('https://notvak345.com/s.js'), 'insertBefore'), true);
+    assert.equal(add(new FakeScript()), true, 'inline scripts');
+    assert.equal(add(new FakeFrame('https://dcee7d24.obrut.show/embed/abc')), true, 'the player');
+    assert.equal(add(new FakeNode()), true);
+});

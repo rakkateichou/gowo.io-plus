@@ -21,6 +21,14 @@ const frameHtml = `<div id="oframeplayer">
 function harness(frame = false, html = frame ? frameHtml : parentHtml, url = frameUrl) {
     const dom = parseHTML(`<!doctype html><html><head></head><body>${html}</body></html>`);
     const { document } = dom;
+    // Scripts the runtime injects into the page; linkedom does not run them.
+    const injected = [];
+    const createElement = document.createElement.bind(document);
+    document.createElement = (name, ...rest) => {
+        const element = createElement(name, ...rest);
+        if (String(name).toLowerCase() === 'script') injected.push(element);
+        return element;
+    };
     const listeners = new Map();
     const observers = [];
     const raf = [];
@@ -80,7 +88,7 @@ function harness(frame = false, html = frame ? frameHtml : parentHtml, url = fra
         }
     };
     return {
-        document, iframe, window, messages, frameWindow, parentWindow, flush,
+        document, iframe, window, messages, frameWindow, parentWindow, flush, injected,
         tick() { for (const callback of timers.splice(0)) callback(); flush(); },
         computedStyles,
         emit(type, event) { for (const listener of listeners.get(type) || []) listener(event); flush(); },
@@ -489,4 +497,50 @@ test('before playback the timeline still shows times, from the length the room p
     tell({ time: 676 });
     h.tick();
     assert.deepEqual([hint().dataset.state, label().textContent], ['done', '✓ 11:16']);
+});
+
+test('the player page answers every ad request as if no ad were available', () => {
+    const h = harness(true);
+    const [script] = h.injected.filter(element => element.textContent.includes('VAST'));
+    assert.ok(script, 'injected into the player page');
+
+    // A stand-in for the browser's XMLHttpRequest, with its text getters
+    // refusing binary responses just as the real ones do.
+    class FakeXhr {
+        constructor(body, responseType = '', xml = null) {
+            Object.assign(this, { body, responseType, xml });
+        }
+    }
+    const binary = xhr => !['', 'text'].includes(xhr.responseType);
+    Object.defineProperties(FakeXhr.prototype, {
+        responseText: { configurable: true, get() { if (binary(this)) throw new Error('InvalidStateError'); return this.body; } },
+        responseXML: { configurable: true, get() { if (!['', 'document'].includes(this.responseType)) throw new Error('InvalidStateError'); return this.xml; } },
+        response: { configurable: true, get() { return this.responseType === 'document' ? this.xml : this.body; } }
+    });
+    class FakeParser {
+        parseFromString(text) { return { documentElement: { localName: /<VAST/.test(text) ? 'VAST' : 'parsererror' }, text }; }
+    }
+    const page = vm.createContext({ XMLHttpRequest: FakeXhr, DOMParser: FakeParser });
+    vm.runInContext(script.textContent, page);
+    const make = (...args) => new page.XMLHttpRequest(...args);
+
+    const vast = '<?xml version="1.0"?><VAST version="4.0"><Ad id="1"><InLine><AdSystem>X</AdSystem></InLine></Ad></VAST>';
+    const vmap = '<vmap:VMAP xmlns:vmap="http://www.iab.net/videosuite/vmap" version="1.0"><vmap:AdBreak/></vmap:VMAP>';
+    assert.equal(make(vast).responseText, '<VAST version="3.0"></VAST>');
+    assert.equal(make(vmap).responseText, '<VAST version="3.0"></VAST>');
+    assert.equal(make(vast, 'text').response, '<VAST version="3.0"></VAST>');
+    const doc = make(vast, '', { documentElement: { localName: 'VAST' } }).responseXML;
+    assert.equal(doc.text, '<VAST version="3.0"></VAST>', 'an empty ad document');
+    assert.equal(make(vast).responseXML.text, '<VAST version="3.0"></VAST>', 'also when served as plain text');
+    assert.equal(make('', 'document', { documentElement: { localName: 'VMAP' } }).response.text, '<VAST version="3.0"></VAST>');
+
+    // Everything else is left exactly as it was.
+    const playlist = '#EXTM3U\n#EXT-X-VERSION:3\nsegment.ts';
+    assert.equal(make(playlist).responseText, playlist);
+    assert.equal(make(playlist).responseXML, null);
+    const subtitles = { documentElement: { localName: 'tt' } };
+    assert.equal(make('', 'document', subtitles).responseXML, subtitles);
+    const segment = new ArrayBuffer(8);
+    assert.equal(make(segment, 'arraybuffer').response, segment, 'video data is never read as text');
+    assert.equal(make('{"title":"VAST guide"}').responseText, '{"title":"VAST guide"}');
 });

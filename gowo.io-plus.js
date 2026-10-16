@@ -684,10 +684,62 @@
         `);
     }
 
+    // Video ads. The player asks ad networks for VAST (or VMAP) documents
+    // describing what to play before, during or after the episode. Every such
+    // answer is replaced with an empty one, the ordinary "no ad today" reply,
+    // so the episode starts at once. Blocking the requests instead would set
+    // off the player's fallback, which retries from other addresses. Runs in
+    // the player's own page, where its requests are made.
+    function pageAdResponseFilter() {
+        const emptyAnswer = '<VAST version="3.0"></VAST>';
+        const isAdDocument = text => typeof text === 'string' &&
+            /<(?:[\w-]+:)?(?:VAST|VMAP)[\s>/]/.test(text.slice(0, 4096));
+        const isAdRoot = doc => /^(?:VAST|VMAP)$/i.test(doc?.documentElement?.localName || '');
+        const proto = XMLHttpRequest.prototype;
+        const getter = name => Object.getOwnPropertyDescriptor(proto, name)?.get;
+        const textOf = getter('responseText');
+        const responseOf = getter('response');
+        const documentOf = getter('responseXML');
+        if (!textOf || !responseOf || !documentOf) return;
+        let emptyDocument = null;
+        const empty = () => emptyDocument ||= new DOMParser().parseFromString(emptyAnswer, 'text/xml');
+        // Text is only readable for these; video segments arrive as binary.
+        const readsText = xhr => xhr.responseType === '' || xhr.responseType === 'text';
+        const readsDocument = xhr => xhr.responseType === '' || xhr.responseType === 'document';
+        const define = (name, get) => Object.defineProperty(proto, name, { configurable: true, enumerable: true, get });
+        define('responseText', function () {
+            const text = textOf.call(this);
+            return isAdDocument(text) ? emptyAnswer : text;
+        });
+        define('responseXML', function () {
+            const doc = documentOf.call(this);
+            if (isAdRoot(doc)) return empty();
+            // Served as text, not XML: no document, but the text may still be an ad.
+            return !doc && readsText(this) && isAdDocument(textOf.call(this)) ? empty() : doc;
+        });
+        define('response', function () {
+            const value = responseOf.call(this);
+            if (readsText(this)) return isAdDocument(value) ? emptyAnswer : value;
+            if (readsDocument(this)) return isAdRoot(value) ? empty() : value;
+            return value;
+        });
+    }
+
+    function installAdResponseFilter() {
+        // An ad filter that cannot start must not take the other bridges with it.
+        try {
+            const script = document.createElement('script');
+            script.textContent = `(${pageAdResponseFilter})();`;
+            (document.head || document.documentElement).append(script);
+            script.remove();
+        } catch {}
+    }
+
     if (window.top !== window.self) {
         const hostname = window.location.hostname.toLowerCase();
         if (hostname === 'alloha.gowo.tv' ||
             hostname.endsWith('.obrut.show')) {
+            installAdResponseFilter();
             initPlayerCursorBridge();
             initPlayerToolbarBridge();
             if (/[?&]readonly=1(?:&|$)/.test(window.location.search || '')) initPlayerSeekBridge();

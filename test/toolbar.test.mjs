@@ -24,6 +24,7 @@ function harness(frame = false, html = frame ? frameHtml : parentHtml, url = fra
     const listeners = new Map();
     const observers = [];
     const raf = [];
+    const timers = [];
     const messages = [];
     const computedStyles = new WeakMap();
     const frameWindow = { postMessage: (message, origin) => messages.push({ message, origin }) };
@@ -62,7 +63,8 @@ function harness(frame = false, html = frame ? frameHtml : parentHtml, url = fra
         HTMLDivElement: dom.HTMLDivElement, HTMLIFrameElement: dom.HTMLIFrameElement,
         localStorage: storage, sessionStorage: storage, TextEncoder, Intl,
         requestAnimationFrame: callback => { raf.push(callback); return raf.length; },
-        cancelAnimationFrame() {}, setTimeout: () => 1, setInterval: () => 1, clearTimeout() {},
+        cancelAnimationFrame() {}, setInterval: () => 1, clearTimeout() {},
+        setTimeout: callback => { timers.push(callback); return timers.length; },
         MutationObserver: class {
             constructor(callback) { this.callback = callback; observers.push(this); }
             observe() {}
@@ -79,6 +81,7 @@ function harness(frame = false, html = frame ? frameHtml : parentHtml, url = fra
     };
     return {
         document, iframe, window, messages, frameWindow, parentWindow, flush,
+        tick() { for (const callback of timers.splice(0)) callback(); flush(); },
         computedStyles,
         emit(type, event) { for (const listener of listeners.get(type) || []) listener(event); flush(); },
         receive(message, overrides = {}) {
@@ -368,13 +371,16 @@ test('a viewer\'s click on the player timeline is reported instead of pausing; a
         h.document.querySelector('#played').getBoundingClientRect = () => rect(10, 640, 300, 4);
         h.document.querySelector('#tall').getBoundingClientRect = () => rect(0, 600, 1000, 100);
         h.messages.length = 0;
-        const click = (clientX, clientY) => {
-            const event = new (h.document.defaultView?.Event || Event)('click', { bubbles: true, cancelable: true });
+        const fire = (type, clientX, clientY) => {
+            const event = new (h.document.defaultView?.Event || Event)(type, { bubbles: true, cancelable: true });
             Object.assign(event, { clientX, clientY, button: 0 });
             h.document.querySelector('#oframeplayer').dispatchEvent(event);
+            h.flush();
             return event.defaultPrevented;
         };
-        return { h, click, seeks: () => JSON.parse(JSON.stringify(h.messages.splice(0).filter(item => item.message.type === 'seek'))) };
+        const click = (clientX, clientY) => fire('click', clientX, clientY);
+        const move = (clientX, clientY) => fire('pointermove', clientX, clientY);
+        return { h, click, move, seeks: () => JSON.parse(JSON.stringify(h.messages.splice(0).filter(item => item.message.type === 'seek'))) };
     };
     const viewer = run(`${frameUrl}?api=1&readonly=1`);
     assert.equal(viewer.click(500, 300), false, 'a click on the video is the player\'s own');
@@ -384,7 +390,65 @@ test('a viewer\'s click on the player timeline is reported instead of pausing; a
         { message: { source: 'gowo-plus-seek-bridge-v1', type: 'seek', fraction: 0.25 }, origin: 'https://gowo.io' },
         { message: { source: 'gowo-plus-seek-bridge-v1', type: 'seek', fraction: 1 }, origin: 'https://gowo.io' }
     ]);
+    assert.equal(viewer.h.document.getElementById('gowo-seek-hint')?.hidden ?? true, true, 'no length known, no time to show');
     const owner = run(`${frameUrl}?api=1&readonly=0`);
     assert.equal(owner.click(255, 645), false);
     assert.deepEqual(owner.seeks(), []);
+});
+
+test('a viewer sees a pointer and the time on the timeline, then whether the room moved there', () => {
+    const html = `${frameHtml}<pjsdiv id="bar"></pjsdiv><video id="ad"></video><video id="episode"></video>`;
+    const h = harness(true, html, `${frameUrl}?api=1&readonly=1`);
+    h.document.querySelector('#bar').getBoundingClientRect = () => ({ left: 10, top: 640, width: 980, height: 4, right: 990, bottom: 644 });
+    const media = (id, duration) => {
+        const element = h.document.getElementById(id);
+        Object.defineProperty(element, 'duration', { value: duration });
+        Object.defineProperty(element, 'currentTime', { value: 0, writable: true });
+        return element;
+    };
+    media('ad', 15);
+    const episode = media('episode', 2704);
+    const fire = (type, clientX, clientY) => {
+        const event = new (h.document.defaultView?.Event || Event)(type, { bubbles: true, cancelable: true });
+        Object.assign(event, { clientX, clientY, button: 0 });
+        h.document.querySelector('#oframeplayer').dispatchEvent(event);
+        h.flush();
+    };
+    const root = h.document.documentElement;
+    const hint = () => h.document.getElementById('gowo-seek-hint');
+    const label = () => hint().querySelector('.gowo-seek-label').textContent;
+
+    fire('pointermove', 500, 300);
+    assert.equal(root.classList.contains('gowo-seek-hover'), false);
+    fire('pointermove', 255, 642);
+    assert.equal(root.classList.contains('gowo-seek-hover'), true, 'a pointer over the timeline');
+    assert.deepEqual([hint().hidden, hint().dataset.state, label(), hint().style.left], [false, 'hover', '11:16', '255px']);
+    fire('pointermove', 990, 642);
+    assert.equal(label(), '45:04');
+    assert.equal(hint().querySelector('.gowo-seek-label').style.left, '-50px', 'kept inside the player');
+    fire('pointermove', 500, 300);
+    assert.deepEqual([root.classList.contains('gowo-seek-hover'), hint().hidden], [false, true]);
+
+    // Clicked: waiting for the room, then confirmed once the video is there.
+    fire('click', 255, 642);
+    assert.deepEqual([hint().hidden, hint().dataset.state, label()], [false, 'pending', '→ 11:16']);
+    fire('pointermove', 500, 300);
+    assert.equal(hint().hidden, false, 'the status stays while waiting');
+    h.tick();
+    assert.equal(hint().dataset.state, 'pending');
+    episode.currentTime = 675.5;
+    h.tick();
+    assert.deepEqual([hint().dataset.state, label()], ['done', '✓ 11:16']);
+    h.tick();
+    assert.equal(hint().hidden, true);
+
+    // Nobody who controls the room took it up.
+    fire('click', 500, 642);
+    for (let check = 1; check < 20; check++) h.tick();
+    assert.equal(hint().dataset.state, 'pending');
+    h.tick();
+    assert.deepEqual([hint().dataset.state, label()], ['failed', 'Не получилось перемотать']);
+    h.tick();
+    assert.equal(hint().hidden, true);
+    assert.match([...h.document.querySelectorAll('style')].map(style => style.textContent).join(''), /html\.gowo-seek-hover/);
 });

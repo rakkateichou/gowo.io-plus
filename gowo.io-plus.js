@@ -550,22 +550,123 @@
             }
             return best;
         };
+        const inBand = (event, rect) => Boolean(rect) &&
+            event.clientY >= rect.top - 8 && event.clientY <= rect.bottom + 8 &&
+            event.clientX >= rect.left && event.clientX <= rect.right;
+        const fractionAt = (event, rect) => Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+        // The episode itself, not an ad: the longest video with a known length.
+        const video = () => [...document.querySelectorAll('video')].reduce((best, candidate) =>
+            Number.isFinite(candidate.duration) && candidate.duration > (best?.duration || 0) ? candidate : best, null);
+        const formatTime = value => {
+            const total = Math.max(0, Math.round(value));
+            const hours = Math.floor(total / 3600);
+            const minutes = Math.floor(total / 60) % 60;
+            const seconds = String(total % 60).padStart(2, '0');
+            return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}` : `${minutes}:${seconds}`;
+        };
+
+        // A marker on the timeline with the time under the pointer, and after
+        // a click, whether the room has moved there yet.
+        let hint = null;
+        let pending = null;
+        let lastMove = null;
+        let moveFrame = 0;
+        const showHint = (x, rect, text, state) => {
+            if (!hint?.isConnected) {
+                hint = document.createElement('div');
+                hint.id = 'gowo-seek-hint';
+                hint.setAttribute('aria-hidden', 'true');
+                hint.innerHTML = '<span class="gowo-seek-mark"></span><span class="gowo-seek-label"></span>';
+                (document.body || document.documentElement).append(hint);
+            }
+            hint.hidden = false;
+            hint.dataset.state = state;
+            hint.style.left = `${x}px`;
+            hint.style.top = `${rect.top + rect.height / 2}px`;
+            const label = hint.querySelector('.gowo-seek-label');
+            label.textContent = text;
+            label.hidden = !text;
+            // Keep the label inside the player near its edges.
+            const edge = Math.min(Math.max(x, 60), window.innerWidth - 60);
+            label.style.left = `${edge - x}px`;
+        };
+        const hideHint = () => { if (hint && !pending) hint.hidden = true; };
+        const hover = () => {
+            moveFrame = 0;
+            const event = lastMove;
+            const rect = timeline();
+            const over = inBand(event, rect);
+            document.documentElement.classList.toggle('gowo-seek-hover', over);
+            if (pending) return;
+            if (!over) return hideHint();
+            const media = video();
+            showHint(event.clientX, rect, media ? formatTime(fractionAt(event, rect) * media.duration) : '', 'hover');
+        };
+        document.addEventListener('pointermove', event => {
+            lastMove = { clientX: event.clientX, clientY: event.clientY };
+            if (!moveFrame) moveFrame = requestAnimationFrame(hover);
+        }, { capture: true, passive: true });
+        document.documentElement.addEventListener('pointerleave', () => {
+            document.documentElement.classList.remove('gowo-seek-hover');
+            hideHint();
+        });
+
+        const settle = (state, text, ms) => {
+            pending.state = state;
+            showHint(pending.x, pending.rect, text, state);
+            setTimeout(() => {
+                pending = null;
+                if (hint) hint.hidden = true;
+            }, ms);
+        };
+        const watchSeek = () => {
+            if (!pending || pending.state !== 'pending') return;
+            const media = video();
+            if (media && Math.abs(media.currentTime - pending.time) < 2) {
+                return settle('done', `✓ ${formatTime(pending.time)}`, 900);
+            }
+            // Nobody who controls the room took it up within about five
+            // seconds: owner away, or turned off.
+            if (++pending.checks >= 20) return settle('failed', 'Не получилось перемотать', 2500);
+            setTimeout(watchSeek, 250);
+        };
+
         const handle = event => {
             if (event.button || !event.isTrusted && event.type !== 'click') return;
             const rect = timeline();
-            if (!rect || event.clientY < rect.top - 8 || event.clientY > rect.bottom + 8 ||
-                event.clientX < rect.left || event.clientX > rect.right) return;
+            if (!inBand(event, rect)) return;
             event.preventDefault();
             event.stopImmediatePropagation();
             if (event.type !== 'click') return;
-            window.parent.postMessage({
-                source: seekBridgeMarker, type: 'seek',
-                fraction: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
-            }, 'https://gowo.io');
+            const fraction = fractionAt(event, rect);
+            window.parent.postMessage({ source: seekBridgeMarker, type: 'seek', fraction }, 'https://gowo.io');
+            const media = video();
+            if (!media) return;
+            pending = { time: fraction * media.duration, x: event.clientX, rect, checks: 0, state: 'pending' };
+            showHint(pending.x, rect, `→ ${formatTime(pending.time)}`, 'pending');
+            setTimeout(watchSeek, 250);
         };
         for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
             document.addEventListener(type, handle, true);
         }
+
+        injectCSS(`
+            html.gowo-seek-hover, html.gowo-seek-hover * { cursor: pointer!important; }
+            #gowo-seek-hint { position: fixed; z-index: 2147483000; width: 0; height: 0; pointer-events: none; }
+            #gowo-seek-hint[hidden] { display: none!important; }
+            #gowo-seek-hint .gowo-seek-mark {
+                position: absolute; left: -1.5px; top: -7px; width: 3px; height: 14px;
+                border-radius: 2px; background: #fff; box-shadow: 0 0 3px rgba(0, 0, 0, .8);
+            }
+            #gowo-seek-hint .gowo-seek-label {
+                position: absolute; bottom: 12px; transform: translateX(-50%); white-space: nowrap;
+                padding: 3px 7px; border-radius: 6px; background: rgba(25, 26, 28, .92);
+                color: #fff; font: 12px/16px Arial, sans-serif;
+            }
+            #gowo-seek-hint .gowo-seek-label[hidden] { display: none; }
+            #gowo-seek-hint[data-state="pending"] .gowo-seek-mark { background: #b76cff; }
+            #gowo-seek-hint[data-state="failed"] .gowo-seek-label { color: #ff7379; }
+        `);
     }
 
     if (window.top !== window.self) {

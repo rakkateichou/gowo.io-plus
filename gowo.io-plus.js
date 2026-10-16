@@ -554,9 +554,23 @@
             event.clientY >= rect.top - 8 && event.clientY <= rect.bottom + 8 &&
             event.clientX >= rect.left && event.clientX <= rect.right;
         const fractionAt = (event, rect) => Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-        // The episode itself, not an ad: the longest video with a known length.
-        const video = () => [...document.querySelectorAll('video')].reduce((best, candidate) =>
+        // The player tells the room page its length and position; the page
+        // passes them on. Its <video> may not know its length before playing.
+        const known = { duration: 0, time: NaN, at: 0 };
+        window.addEventListener('message', event => {
+            const data = event.data;
+            if (event.source !== window.parent || event.origin !== 'https://gowo.io' ||
+                data?.source !== seekBridgeMarker || data.type !== 'player') return;
+            if (Number(data.duration) > 0) known.duration = Number(data.duration);
+            if (Number.isFinite(data.time) && data.time >= 0) {
+                known.time = data.time;
+                known.at = ++known.updates;
+            }
+        });
+        known.updates = 0;
+        const episode = () => [...document.querySelectorAll('video')].reduce((best, candidate) =>
             Number.isFinite(candidate.duration) && candidate.duration > (best?.duration || 0) ? candidate : best, null);
+        const duration = () => known.duration || episode()?.duration || 0;
         const formatTime = value => {
             const total = Math.max(0, Math.round(value));
             const hours = Math.floor(total / 3600);
@@ -569,8 +583,6 @@
         // a click, whether the room has moved there yet.
         let hint = null;
         let pending = null;
-        let probeHoversCount = 0;
-        const probeHoversTick = () => { probeHoversCount++; };
         let lastMove = null;
         let moveFrame = 0;
         const showHint = (x, rect, text, state) => {
@@ -594,7 +606,6 @@
         };
         const hideHint = () => { if (hint && !pending) hint.hidden = true; };
         const hover = () => {
-            probeHoversTick();
             moveFrame = 0;
             const event = lastMove;
             const rect = timeline();
@@ -602,8 +613,8 @@
             document.documentElement.classList.toggle('gowo-seek-hover', over);
             if (pending) return;
             if (!over) return hideHint();
-            const media = video();
-            showHint(event.clientX, rect, media ? formatTime(fractionAt(event, rect) * media.duration) : '', 'hover');
+            const length = duration();
+            showHint(event.clientX, rect, length ? formatTime(fractionAt(event, rect) * length) : '', 'hover');
         };
         document.addEventListener('pointermove', event => {
             lastMove = { clientX: event.clientX, clientY: event.clientY };
@@ -624,8 +635,9 @@
         };
         const watchSeek = () => {
             if (!pending || pending.state !== 'pending') return;
-            const media = video();
-            if (media && Math.abs(media.currentTime - pending.time) < 2) {
+            // A position reported after the click, else the video's own.
+            const position = known.at > pending.since ? known.time : episode()?.currentTime;
+            if (Number.isFinite(position) && Math.abs(position - pending.time) < 2) {
                 return settle('done', `✓ ${formatTime(pending.time)}`, 900);
             }
             // Nobody who controls the room took it up within about five
@@ -643,54 +655,27 @@
             if (event.type !== 'click') return;
             const fraction = fractionAt(event, rect);
             window.parent.postMessage({ source: seekBridgeMarker, type: 'seek', fraction }, 'https://gowo.io');
-            const media = video();
-            if (!media) return;
-            pending = { time: fraction * media.duration, x: event.clientX, rect, checks: 0, state: 'pending' };
+            const length = duration();
+            if (!length) return;
+            pending = { time: fraction * length, x: event.clientX, rect, checks: 0, since: known.updates, state: 'pending' };
             showHint(pending.x, rect, `→ ${formatTime(pending.time)}`, 'pending');
             setTimeout(watchSeek, 250);
         };
         for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
             document.addEventListener(type, handle, true);
         }
-        // TEMPORARY diagnostics, answered only to the Gowo page.
-        let probeMoves = 0;
-        document.addEventListener('pointermove', () => { probeMoves++; }, true);
-        const probeHover = hover;
-        void probeHover;
-        window.addEventListener('message', event => {
-            if (event.origin !== 'https://gowo.io' || event.data?.source !== seekBridgeMarker || event.data.type !== 'probe') return;
-            const rect = timeline();
-            const mark = hint?.querySelector('.gowo-seek-mark')?.getBoundingClientRect();
-            const top = mark ? document.elementFromPoint(mark.left + 1, mark.top + 2) : null;
-            window.parent.postMessage({
-                source: seekBridgeMarker, type: 'probe-result', probeMoves, probeHovers: probeHoversCount,
-                videos: [...document.querySelectorAll('video')].map(v => [v.duration, v.currentTime, v.readyState]),
-                shadows: [...document.querySelectorAll('*')].filter(e => e.shadowRoot).length,
-                frames: document.querySelectorAll('iframe').length,
-                rect: rect && [rect.left, rect.top, rect.width, rect.height],
-                inner: [window.innerWidth, window.innerHeight],
-                hint: hint ? { connected: hint.isConnected, hidden: hint.hidden, left: hint.style.left, top: hint.style.top, display: getComputedStyle(hint).display, state: hint.dataset.state, label: hint.textContent } : null,
-                mark: mark && [mark.left, mark.top, mark.width, mark.height],
-                topAtMark: top && `${top.tagName}#${top.id}.${top.className} z=${getComputedStyle(top).zIndex}`,
-                hoverClass: document.documentElement.classList.contains('gowo-seek-hover'),
-                times: [...document.querySelectorAll('pjsdiv')].filter(e => !e.children.length && /\d:\d\d/.test(e.textContent)).map(e => { const r = e.getBoundingClientRect(); return `${e.textContent.trim()}@${Math.round(r.left)},${Math.round(r.top)} ${r.width > 0 ? 'shown' : 'none'}`; }).slice(0, 12),
-                maxZ: [...document.querySelectorAll('*')].map(e => [Number(getComputedStyle(e).zIndex) || 0, e]).sort((a, b) => b[0] - a[0]).slice(0, 4).map(([z, e]) => `${z}:${e.tagName}#${e.id}`),
-                bodyChildren: [...document.body.children].map(e => `${e.tagName}#${e.id} z=${getComputedStyle(e).zIndex} pos=${getComputedStyle(e).position}`).slice(0, 12)
-            }, 'https://gowo.io');
-        });
-
         injectCSS(`
             html.gowo-seek-hover, html.gowo-seek-hover * { cursor: pointer!important; }
             #gowo-seek-hint { position: fixed; z-index: 2147483000; width: 0; height: 0; pointer-events: none; }
             #gowo-seek-hint[hidden] { display: none!important; }
             #gowo-seek-hint .gowo-seek-mark {
-                position: absolute; left: -1.5px; top: -7px; width: 3px; height: 14px;
-                border-radius: 2px; background: #fff; box-shadow: 0 0 3px rgba(0, 0, 0, .8);
+                position: absolute; left: -2px; top: -9px; width: 4px; height: 18px;
+                border-radius: 2px; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .55), 0 0 6px rgba(0, 0, 0, .6);
             }
             #gowo-seek-hint .gowo-seek-label {
-                position: absolute; bottom: 12px; transform: translateX(-50%); white-space: nowrap;
-                padding: 3px 7px; border-radius: 6px; background: rgba(25, 26, 28, .92);
-                color: #fff; font: 12px/16px Arial, sans-serif;
+                position: absolute; bottom: 14px; transform: translateX(-50%); white-space: nowrap;
+                padding: 4px 8px; border-radius: 6px; background: rgba(25, 26, 28, .94);
+                color: #fff; font: 13px/16px Arial, sans-serif; box-shadow: 0 1px 6px rgba(0, 0, 0, .5);
             }
             #gowo-seek-hint .gowo-seek-label[hidden] { display: none; }
             #gowo-seek-hint[data-state="pending"] .gowo-seek-mark { background: #b76cff; }
@@ -1713,12 +1698,20 @@
         const data = event.data;
         if (!frame || event.source !== frame.contentWindow || !data ||
             !/^https:\/\/[^/]+\.obrut\.show$/.test(event.origin)) return;
+        const frameOrigin = new URL(frame.src).origin;
+        const viewer = playbackRole() === 'viewer';
         if (playbackFrame !== frame) {
             playbackFrame = frame;
             playbackPlaying = false;
             playbackTime = 0;
             playbackDuration = 0;
+            // The player only announces its length once playing; ask for it.
+            frame.contentWindow?.postMessage({ api: 'duration' }, frameOrigin);
         }
+        // Length and position for the timeline hint inside a viewer's player.
+        const tellFrame = details => {
+            if (viewer) frame.contentWindow?.postMessage({ source: seekBridgeMarker, type: 'player', ...details }, frameOrigin);
+        };
         const requestPlayback = (action, time) => {
             if (playbackRole() !== 'viewer' || !cursorJoinSent || cursorSocket?.readyState !== WebSocket.OPEN) return;
             cursorSocket.send(JSON.stringify({ type: 'control', action, ...(action === 'seek' ? { time } : {}) }));
@@ -1732,8 +1725,18 @@
             return;
         }
         if (typeof data.event !== 'string') return;
-        if (data.event === 'duration' && Number(data.duration) > 0) playbackDuration = Number(data.duration);
-        if (data.event === 'time' && Number.isFinite(Number(data.data))) playbackTime = Number(data.data);
+        if (data.event === 'inited' && !playbackDuration) frame.contentWindow?.postMessage({ api: 'duration' }, frameOrigin);
+        // Announced while playing, or the answer to our question.
+        const length = Number(data.event === 'duration' ? data.duration ?? data.answer : NaN);
+        if (length > 0 && length !== playbackDuration) {
+            playbackDuration = length;
+            tellFrame({ duration: length });
+        }
+        if (data.event === 'time' && Number.isFinite(Number(data.data))) {
+            playbackTime = Number(data.data);
+            tellFrame({ time: playbackTime });
+        }
+        if (data.event === 'seek' && Number.isFinite(Number(data.data))) tellFrame({ time: Number(data.data) });
         if (data.event === 'play') {
             playbackPlaying = true;
             clearAutoPause();

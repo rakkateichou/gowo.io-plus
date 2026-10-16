@@ -452,3 +452,41 @@ test('a viewer sees a pointer and the time on the timeline, then whether the roo
     assert.equal(hint().hidden, true);
     assert.match([...h.document.querySelectorAll('style')].map(style => style.textContent).join(''), /html\.gowo-seek-hover/);
 });
+
+test('before playback the timeline still shows times, from the length the room page learned', () => {
+    const html = `${frameHtml}<pjsdiv id="bar"></pjsdiv><video id="episode"></video>`;
+    const h = harness(true, html, `${frameUrl}?api=1&readonly=1`);
+    h.document.querySelector('#bar').getBoundingClientRect = () => ({ left: 10, top: 640, width: 980, height: 4, right: 990, bottom: 644 });
+    // Not loaded yet: no length, a stale position.
+    const video = h.document.getElementById('episode');
+    Object.defineProperty(video, 'duration', { value: NaN });
+    Object.defineProperty(video, 'currentTime', { value: 600 });
+    const fire = (type, clientX, clientY) => {
+        const event = new (h.document.defaultView?.Event || Event)(type, { bubbles: true, cancelable: true });
+        Object.assign(event, { clientX, clientY, button: 0 });
+        h.document.querySelector('#oframeplayer').dispatchEvent(event);
+        h.flush();
+    };
+    const hint = () => h.document.getElementById('gowo-seek-hint');
+    const label = () => hint().querySelector('.gowo-seek-label');
+    const tell = (details, overrides = {}) => h.receive({ source: 'gowo-plus-seek-bridge-v1', type: 'player', ...details }, overrides);
+
+    fire('pointermove', 255, 642);
+    assert.deepEqual([hint().hidden, label().hidden], [false, true], 'a marker, but no time to show yet');
+    tell({ duration: 2704 }, { origin: 'https://evil.example' });
+    tell({ duration: 2704 }, { source: {} });
+    fire('pointermove', 256, 642);
+    assert.equal(label().hidden, true);
+    tell({ duration: 2704 });
+    fire('pointermove', 255, 642);
+    assert.equal(label().textContent, '11:16');
+
+    fire('click', 255, 642);
+    assert.equal(label().textContent, '→ 11:16');
+    // A position from before the click does not count, one after it does.
+    h.tick();
+    assert.equal(hint().dataset.state, 'pending');
+    tell({ time: 676 });
+    h.tick();
+    assert.deepEqual([hint().dataset.state, label().textContent], ['done', '✓ 11:16']);
+});

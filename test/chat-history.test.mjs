@@ -894,12 +894,13 @@ async function watching(readonly, saved = new Map()) {
     socket.open();
     socket.take();
     const player = (data, overrides = {}) => h.emit('message', { data, origin: 'https://player.obrut.show', source: frame, ...overrides });
-    const commands = () => JSON.parse(JSON.stringify(posted.splice(0).filter(item => item.message.api)));
-    return { h, socket, player, commands, requests, saved };
+    // Asking the player for its length is not a command to the room.
+    const commands = () => JSON.parse(JSON.stringify(posted.splice(0).filter(item => item.message.api && item.message.api !== 'duration')));
+    return { h, socket, player, commands, requests, saved, posted };
 }
 
 test('a viewer pausing or resuming asks the room through the relay', async () => {
-    const { h, socket, player, commands, requests } = await watching(1);
+    const { h, socket, player, commands, requests, posted } = await watching(1);
     assert.equal(h.document.getElementById('gowo-plus-shared-pause-toggle'), null, 'nothing to allow as a viewer');
     player({ event: 'userpause', time: 12 });
     player({ event: 'pause', time: 12 });
@@ -911,7 +912,11 @@ test('a viewer pausing or resuming asks the room through the relay', async () =>
     // A timeline click reported by the script inside the player.
     const click = { source: 'gowo-plus-seek-bridge-v1', type: 'seek', fraction: 0.25 };
     player(click);
-    player({ event: 'duration', time: 12, data: 2704.16, duration: 2704.16 });
+    // Before playback the page asks for the length, which also reaches the player script.
+    assert.deepEqual(JSON.parse(JSON.stringify(posted.filter(item => item.message.api === 'duration').map(item => item.message))), [{ api: 'duration' }]);
+    player({ event: 'duration', answer: 2704.16 });
+    assert.deepEqual(JSON.parse(JSON.stringify(posted.filter(item => item.message.type === 'player').map(item => item.message))),
+        [{ source: 'gowo-plus-seek-bridge-v1', type: 'player', duration: 2704.16 }]);
     player(click);
     player({ ...click, fraction: 1.5 });
     player(click, { source: {} });

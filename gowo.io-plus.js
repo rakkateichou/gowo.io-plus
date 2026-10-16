@@ -641,9 +641,9 @@
             if (Number.isFinite(position) && Math.abs(position - pending.time) < 2) {
                 return settle('done', `✓ ${formatTime(pending.time)}`, 900);
             }
-            // Nobody who controls the room took it up within about five
+            // Nobody who controls the room took it up within about ten
             // seconds: owner away, or turned off.
-            if (++pending.checks >= 20) return settle('failed', 'Не получилось перемотать', 2500);
+            if (++pending.checks >= 40) return settle('failed', 'Не получилось перемотать', 2500);
             setTimeout(watchSeek, 250);
         };
 

@@ -444,7 +444,7 @@ test('a viewer sees a pointer and the time on the timeline, then whether the roo
 
     // Nobody who controls the room took it up.
     fire('click', 500, 642);
-    for (let check = 1; check < 20; check++) h.tick();
+    for (let check = 1; check < 40; check++) h.tick();
     assert.equal(hint().dataset.state, 'pending');
     h.tick();
     assert.deepEqual([hint().dataset.state, label()], ['failed', 'Не получилось перемотать']);

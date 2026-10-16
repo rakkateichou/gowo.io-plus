@@ -569,6 +569,8 @@
         // a click, whether the room has moved there yet.
         let hint = null;
         let pending = null;
+        let probeHoversCount = 0;
+        const probeHoversTick = () => { probeHoversCount++; };
         let lastMove = null;
         let moveFrame = 0;
         const showHint = (x, rect, text, state) => {
@@ -592,6 +594,7 @@
         };
         const hideHint = () => { if (hint && !pending) hint.hidden = true; };
         const hover = () => {
+            probeHoversTick();
             moveFrame = 0;
             const event = lastMove;
             const rect = timeline();
@@ -649,6 +652,30 @@
         for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
             document.addEventListener(type, handle, true);
         }
+        // TEMPORARY diagnostics, answered only to the Gowo page.
+        let probeMoves = 0;
+        document.addEventListener('pointermove', () => { probeMoves++; }, true);
+        const probeHover = hover;
+        void probeHover;
+        window.addEventListener('message', event => {
+            if (event.origin !== 'https://gowo.io' || event.data?.source !== seekBridgeMarker || event.data.type !== 'probe') return;
+            const rect = timeline();
+            const mark = hint?.querySelector('.gowo-seek-mark')?.getBoundingClientRect();
+            const top = mark ? document.elementFromPoint(mark.left + 1, mark.top + 2) : null;
+            window.parent.postMessage({
+                source: seekBridgeMarker, type: 'probe-result', probeMoves, probeHovers: probeHoversCount,
+                videos: [...document.querySelectorAll('video')].map(v => [v.duration, v.currentTime, v.readyState]),
+                shadows: [...document.querySelectorAll('*')].filter(e => e.shadowRoot).length,
+                frames: document.querySelectorAll('iframe').length,
+                rect: rect && [rect.left, rect.top, rect.width, rect.height],
+                inner: [window.innerWidth, window.innerHeight],
+                hint: hint ? { connected: hint.isConnected, hidden: hint.hidden, left: hint.style.left, top: hint.style.top, display: getComputedStyle(hint).display, state: hint.dataset.state, label: hint.textContent } : null,
+                mark: mark && [mark.left, mark.top, mark.width, mark.height],
+                topAtMark: top && `${top.tagName}#${top.id}.${top.className} z=${getComputedStyle(top).zIndex}`,
+                hoverClass: document.documentElement.classList.contains('gowo-seek-hover'),
+                bodyChildren: [...document.body.children].map(e => `${e.tagName}#${e.id} z=${getComputedStyle(e).zIndex} pos=${getComputedStyle(e).position}`).slice(0, 12)
+            }, 'https://gowo.io');
+        });
 
         injectCSS(`
             html.gowo-seek-hover, html.gowo-seek-hover * { cursor: pointer!important; }

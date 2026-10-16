@@ -124,6 +124,7 @@ test('the buttons stay on the bottom line and the field only scrolls at its tall
     const h = harness();
     const css = [...h.document.querySelectorAll('style')].map(style => style.textContent).join('\n');
     assert.match(css, /\.chat-footer > \.d-flex \{\s*align-items: flex-end!important/);
+    assert.match(css, /\.textarea > label \{\s*display: block!important;\s*height: auto!important/, 'Gowo fixes it at one row');
     assert.match(css, /\.chat-footer textarea \{[^}]*overflow-y: hidden!important/);
     assert.match(css, /textarea\.gowo-composer-scrolls \{\s*overflow-y: auto!important/);
     assert.match(css, /#search-gifts-button \{[^}]*top: auto!important;\s*bottom: 8px!important/);

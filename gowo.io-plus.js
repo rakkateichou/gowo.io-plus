@@ -4023,7 +4023,13 @@
             /* Use the space left after buttons, not the textarea's intrinsic width. */
             flex: 1 1 0%;
         }
+        /* Gowo's label is one row tall; let it hold the growing field. */
+        app-chat-messages-room .chat-footer .textarea > label {
+            display: block!important;
+            height: auto!important;
+        }
         app-chat-messages-room .chat-footer textarea {
+            display: block!important;
             box-sizing: border-box!important;
             width: 100%!important;
             min-width: 0!important;

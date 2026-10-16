@@ -673,6 +673,8 @@
                 mark: mark && [mark.left, mark.top, mark.width, mark.height],
                 topAtMark: top && `${top.tagName}#${top.id}.${top.className} z=${getComputedStyle(top).zIndex}`,
                 hoverClass: document.documentElement.classList.contains('gowo-seek-hover'),
+                times: [...document.querySelectorAll('pjsdiv')].filter(e => !e.children.length && /\d:\d\d/.test(e.textContent)).map(e => { const r = e.getBoundingClientRect(); return `${e.textContent.trim()}@${Math.round(r.left)},${Math.round(r.top)} ${r.width > 0 ? 'shown' : 'none'}`; }).slice(0, 12),
+                maxZ: [...document.querySelectorAll('*')].map(e => [Number(getComputedStyle(e).zIndex) || 0, e]).sort((a, b) => b[0] - a[0]).slice(0, 4).map(([z, e]) => `${z}:${e.tagName}#${e.id}`),
                 bodyChildren: [...document.body.children].map(e => `${e.tagName}#${e.id} z=${getComputedStyle(e).zIndex} pos=${getComputedStyle(e).position}`).slice(0, 12)
             }, 'https://gowo.io');
         });

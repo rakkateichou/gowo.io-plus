@@ -1100,6 +1100,8 @@
         const height = Math.max(Math.min(content, limit) + border, parseFloat(style.minHeight) || 0);
         input.style.setProperty('height', `${Math.ceil(height)}px`, 'important');
         input.classList.toggle('gowo-composer-scrolls', content > limit);
+        // Typing at the end shows the last line with its padding, not cut at the edge.
+        if (content > limit && input.selectionEnd === input.value.length) input.scrollTop = input.scrollHeight;
         // The list above gives up the room; keep its newest message in view.
         scrollChatToBottom();
     }

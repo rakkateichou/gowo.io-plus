@@ -18,6 +18,7 @@ A userscript for Tampermonkey and Safari Userscripts that enhances Gowo.io rooms
 - Simple, uncircled chat-header icons with the original controls and tooltips
 - A responsive 48-emote 7TV picker with `:token:` autocomplete and inline animated rendering
 - A dedicated Send button to the right of the chat field
+- A chat field that grows with its text up to six lines (**Shift+Enter** starts a new line)
 - Shared coloured cursors and smooth trails while holding `Ctrl` over the player
 - No video ads (best effort): the player is told there is no ad before or during an
   episode, and the floating video ad on Gowo.io's pages is refused before it loads

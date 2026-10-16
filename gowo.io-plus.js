@@ -1042,6 +1042,81 @@
         return true;
     }
 
+    // The message field grows with its text up to a few lines, then scrolls.
+    // Gowo's is one row tall, so a second line was only visible by scrolling.
+    // A hidden copy measures the text at the field's width, leaving the chat's
+    // own layout undisturbed.
+    const composerMaxLines = 6;
+    // What decides where the text wraps and how tall each line is.
+    const composerMetrics = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight',
+        'letterSpacing', 'wordSpacing', 'textTransform', 'textIndent', 'tabSize', 'boxSizing',
+        'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+        'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth'];
+    let composerMeasure = null;
+    let composerSized = null;
+    let composerResize = null;
+
+    function composerInput() {
+        return document.querySelector('app-chat-messages-room .form-message textarea');
+    }
+
+    function syncComposerHeight() {
+        const input = composerInput();
+        if (!input) return;
+        const width = input.offsetWidth;
+        if (composerSized?.input === input && composerSized.value === input.value &&
+            composerSized.width === width) return;
+        if (composerSized?.input !== input && typeof window.ResizeObserver === 'function') {
+            // A narrower chat wraps the same text onto more lines.
+            composerResize?.disconnect();
+            composerResize = new window.ResizeObserver(syncComposerHeight);
+            composerResize.observe(input);
+        }
+        composerSized = { input, value: input.value, width };
+        if (!width) return;
+
+        if (!composerMeasure) {
+            composerMeasure = document.createElement('textarea');
+            composerMeasure.tabIndex = -1;
+            composerMeasure.setAttribute('aria-hidden', 'true');
+            composerMeasure.style.cssText = 'position: fixed!important; left: -10000px!important; top: 0!important;' +
+                ' height: 0!important; min-height: 0!important; max-height: none!important;' +
+                ' overflow: hidden!important; visibility: hidden!important; pointer-events: none!important;';
+        }
+        if (!composerMeasure.isConnected) document.body.append(composerMeasure);
+        const style = window.getComputedStyle(input);
+        for (const name of composerMetrics) composerMeasure.style[name] = style[name];
+        composerMeasure.style.setProperty('width', `${width}px`, 'important');
+        const measure = text => {
+            composerMeasure.value = text;
+            return composerMeasure.scrollHeight;
+        };
+        // A few lines at most, and never much of the chat.
+        const chatHeight = input.closest('app-chat-messages-room')?.clientHeight || Infinity;
+        const limit = Math.min(measure('\n'.repeat(composerMaxLines - 1)), chatHeight * 0.4);
+        const content = measure(input.value);
+        composerMeasure.value = '';
+        const border = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+        const height = Math.max(Math.min(content, limit) + border, parseFloat(style.minHeight) || 0);
+        input.style.setProperty('height', `${Math.ceil(height)}px`, 'important');
+        input.classList.toggle('gowo-composer-scrolls', content > limit);
+        // The list above gives up the room; keep its newest message in view.
+        scrollChatToBottom();
+    }
+
+    // Typing, pasting and our own changes fire input. Gowo empties the field
+    // itself once a message is sent, so look again after a key or click there.
+    document.addEventListener('input', event => {
+        if (event.target === composerInput()) syncComposerHeight();
+    }, true);
+    for (const type of ['keydown', 'click']) {
+        document.addEventListener(type, event => {
+            if (event.target?.closest?.('app-chat-messages-room .form-message')) {
+                requestAnimationFrame(syncComposerHeight);
+            }
+        }, true);
+    }
+
     // Angular only notices a value written through the native setter.
     function setComposerValue(input, value, caret = value.length) {
         const valueSetter = Object.getOwnPropertyDescriptor(
@@ -2661,15 +2736,19 @@
         });
     }
 
+    function scrollChatToBottom(current = chatScroll) {
+        if (!current || chatScroll !== current || !current.follow || !current.wrapper.isConnected) return;
+        current.wrapper.scrollTop = current.wrapper.scrollHeight;
+        current.lastTop = current.wrapper.scrollTop;
+    }
+
     function scheduleChatBottom() {
         const current = chatScroll;
         if (!current || !current.follow || current.scheduled) return;
         current.scheduled = true;
         requestAnimationFrame(() => {
             current.scheduled = false;
-            if (chatScroll !== current || !current.follow || !current.wrapper.isConnected) return;
-            current.wrapper.scrollTop = current.wrapper.scrollHeight;
-            current.lastTop = current.wrapper.scrollTop;
+            scrollChatToBottom(current);
         });
     }
 
@@ -3934,8 +4013,9 @@
             --gowo-chat-control-bg: #000;
             --gowo-chat-control-text: #fff;
         }
+        /* The buttons stay level with the last line as the field grows. */
         app-chat-messages-room .chat-footer > .d-flex {
-            align-items: stretch!important;
+            align-items: flex-end!important;
         }
         app-chat-messages-room .chat-footer > .d-flex > .textarea {
             min-width: 0;
@@ -3955,14 +4035,22 @@
             border-radius: var(--gowo-chat-control-radius)!important;
             background: var(--gowo-chat-control-bg)!important;
             color: var(--gowo-chat-control-text)!important;
+            /* Its height follows the text; it only scrolls once at its tallest. */
+            overflow-y: hidden!important;
+            scrollbar-width: thin;
+            scrollbar-color: #555 transparent;
             transition: border-color 120ms ease, box-shadow 120ms ease;
+        }
+        app-chat-messages-room .chat-footer textarea.gowo-composer-scrolls {
+            overflow-y: auto!important;
         }
         app-chat-messages-room .chat-footer .textarea:has(#search-gifts-button:not([hidden])) textarea {
             padding-right: 32px!important;
         }
         app-chat-messages-room .chat-footer #search-gifts-button {
             right: 6px!important;
-            top: 8px!important;
+            top: auto!important;
+            bottom: 8px!important;
             width: 20px;
             height: 20px;
             line-height: 0;
@@ -4273,6 +4361,7 @@
         injectCallButtonSetting();
         injectPlaybackSettings();
         injectEmotePicker();
+        syncComposerHeight();
         syncChatHistory();
         injectChatHistorySetting();
         formatReplyAuthors();
@@ -4294,7 +4383,7 @@
         if (messages) messages.forEach(formatMessage);
         syncMessageGrouping();
 
-        const textarea = document.querySelector('textarea');
+        const textarea = composerInput();
         if (textarea) textarea.placeholder = 'Текст';
         if (unreadCount) syncUnreadTitle();
     }

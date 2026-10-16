@@ -915,8 +915,10 @@ test('a viewer pausing or resuming asks the room through the relay', async () =>
     // Before playback the page asks for the length, which also reaches the player script.
     assert.deepEqual(JSON.parse(JSON.stringify(posted.filter(item => item.message.api === 'duration').map(item => item.message))), [{ api: 'duration' }]);
     player({ event: 'duration', answer: 2704.16 });
+    // A restarted player script is told what is known.
+    player({ source: 'gowo-plus-seek-bridge-v1', type: 'request' });
     assert.deepEqual(JSON.parse(JSON.stringify(posted.filter(item => item.message.type === 'player').map(item => item.message))),
-        [{ source: 'gowo-plus-seek-bridge-v1', type: 'player', duration: 2704.16 }]);
+        [{ source: 'gowo-plus-seek-bridge-v1', type: 'player', duration: 2704.16 }, { source: 'gowo-plus-seek-bridge-v1', type: 'player', duration: 2704.16 }]);
     player(click);
     player({ ...click, fraction: 1.5 });
     player(click, { source: {} });

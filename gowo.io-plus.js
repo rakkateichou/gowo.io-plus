@@ -568,6 +568,7 @@
             }
         });
         known.updates = 0;
+        window.parent.postMessage({ source: seekBridgeMarker, type: 'request' }, 'https://gowo.io');
         const episode = () => [...document.querySelectorAll('video')].reduce((best, candidate) =>
             Number.isFinite(candidate.duration) && candidate.duration > (best?.duration || 0) ? candidate : best, null);
         const duration = () => known.duration || episode()?.duration || 0;
@@ -1716,8 +1717,15 @@
             if (playbackRole() !== 'viewer' || !cursorJoinSent || cursorSocket?.readyState !== WebSocket.OPEN) return;
             cursorSocket.send(JSON.stringify({ type: 'control', action, ...(action === 'seek' ? { time } : {}) }));
         };
+        const askLength = () => frame.contentWindow?.postMessage({ api: 'duration' }, frameOrigin);
         // A click on the viewer's timeline, reported by the script in the player.
         if (data.source === seekBridgeMarker) {
+            // The player script (re)started and wants what is known so far.
+            if (data.type === 'request') {
+                if (playbackDuration) tellFrame({ duration: playbackDuration });
+                else askLength();
+                return;
+            }
             const fraction = Number(data.fraction);
             if (data.type === 'seek' && playbackDuration > 0 && fraction >= 0 && fraction <= 1) {
                 requestPlayback('seek', Math.round(fraction * playbackDuration * 10) / 10);
@@ -1725,7 +1733,8 @@
             return;
         }
         if (typeof data.event !== 'string') return;
-        if (data.event === 'inited' && !playbackDuration) frame.contentWindow?.postMessage({ api: 'duration' }, frameOrigin);
+        // A (re)loaded player may be showing another episode: ask again.
+        if (data.event === 'inited') askLength();
         // Announced while playing, or the answer to our question.
         const length = Number(data.event === 'duration' ? data.duration ?? data.answer : NaN);
         if (length > 0 && length !== playbackDuration) {

@@ -59,7 +59,7 @@ function harness({ database = new IDBFactory(), room = 'room-a', content = '', h
         close() { this.readyState = 3; this.closed = true; }
         receive(message) { this.handlers.get('message')({ data: JSON.stringify(message) }); }
         // Chat-sync packets only; cursor diagnostics are not under test here.
-        take() { return this.sent.splice(0).filter(packet => ['join', 'sync', 'seen', 'gone', 'edit', 'control', 'autopause'].includes(packet.type)); }
+        take() { return this.sent.splice(0).filter(packet => ['join', 'sync', 'seen', 'gone', 'edit', 'control', 'autopause', 'presence'].includes(packet.type)); }
     }
     const wrappedStyles = new WeakSet();
     const metrics = { extra: 0 };
@@ -918,7 +918,8 @@ test('a viewer pausing or resuming asks the room through the relay', async () =>
     // A restarted player script is told what is known.
     player({ source: 'gowo-plus-seek-bridge-v1', type: 'request' });
     assert.deepEqual(JSON.parse(JSON.stringify(posted.filter(item => item.message.type === 'player').map(item => item.message))),
-        [{ source: 'gowo-plus-seek-bridge-v1', type: 'player', duration: 2704.16 }, { source: 'gowo-plus-seek-bridge-v1', type: 'player', duration: 2704.16 }]);
+        [{ source: 'gowo-plus-seek-bridge-v1', type: 'player', duration: 2704.16 },
+            { source: 'gowo-plus-seek-bridge-v1', type: 'player', control: true, duration: 2704.16 }]);
     player(click);
     player({ ...click, fraction: 1.5 });
     player(click, { source: {} });
@@ -1133,4 +1134,64 @@ test('the notice agrees with the gender people set in their Gowo profile, and ea
     assert.equal(warning(), 'Пауза: Женя покинул комнату');
     socket.receive({ type: 'peer', ...brother, present: true });
     assert.equal(warning(), 'Пауза: Женя вернулся');
+});
+
+const toggleOf = (h, id) => h.document.getElementById(id);
+const flip = (h, id, checked) => {
+    const toggle = toggleOf(h, id);
+    toggle.checked = checked;
+    // Linkedom's own events: it sets their phase as it dispatches.
+    toggle.dispatchEvent(new (parseHTML('').Event)('change'));
+};
+
+test('anyone may leave without pausing the room; the relay hears it on joining and from settings', async () => {
+    const h = harness({ relay: true, saved: new Map([['gowo-plus-pause-on-my-leave', 'false']]), html: playerRoom(1) });
+    await h.settle();
+    const [socket] = h.sockets;
+    socket.open();
+    const [join] = socket.take();
+    assert.equal(join.keepPlaying, true);
+    const toggle = toggleOf(h, 'gowo-plus-pause-on-my-leave-toggle');
+    assert.equal(toggle.checked, false);
+    assert.match(toggle.closest('label').textContent, /Ставить на паузу для всех, когда я отключаюсь/);
+    flip(h, 'gowo-plus-pause-on-my-leave-toggle', true);
+    assert.deepEqual(socket.take(), [{ type: 'presence', keepPlaying: false }]);
+
+    const fresh = harness({ relay: true, html: playerRoom(0) });
+    await fresh.settle();
+    fresh.sockets[0].open();
+    assert.equal('keepPlaying' in fresh.sockets[0].take()[0], false, 'pausing is the default');
+    assert.ok(toggleOf(fresh, 'gowo-plus-pause-on-my-leave-toggle'), 'the owner has it too');
+});
+
+test('the owner does not pause for someone who asked the room to keep playing', async () => {
+    const { h, socket, player, commands } = await watching(0);
+    const friend = { client: '2'.repeat(32), username: 'Аня Пример' };
+    socket.receive({ type: 'joined', peers: [friend] });
+    player({ event: 'play', time: 0 });
+    socket.receive({ type: 'peer', ...friend, keepPlaying: true, present: false });
+    h.tick();
+    assert.deepEqual([commands(), socket.take()], [[], []]);
+});
+
+test('a viewer can turn off controlling the room: nothing they do on the player reaches it', async () => {
+    const { h, socket, player, posted } = await watching(1, new Map([['gowo-plus-viewer-control', 'false']]));
+    assert.equal(toggleOf(h, 'gowo-plus-viewer-control-toggle').checked, false);
+    assert.match(toggleOf(h, 'gowo-plus-viewer-control-toggle').closest('label').textContent, /Ставить на паузу и перематывать для всех/);
+    player({ event: 'duration', answer: 2704 });
+    player({ source: 'gowo-plus-seek-bridge-v1', type: 'request' });
+    const told = () => JSON.parse(JSON.stringify(posted.splice(0).filter(item => 'control' in item.message).map(item => item.message.control)));
+    assert.deepEqual(told(), [false], 'the player script stops offering seeks');
+    player({ event: 'userpause', time: 12 });
+    player({ event: 'userseek', time: 12, data: 95 });
+    player({ source: 'gowo-plus-seek-bridge-v1', type: 'seek', fraction: 0.5 });
+    assert.deepEqual(socket.take(), []);
+
+    flip(h, 'gowo-plus-viewer-control-toggle', true);
+    assert.deepEqual(told(), [true]);
+    player({ event: 'userpause', time: 12 });
+    assert.deepEqual(socket.take(), [{ type: 'control', action: 'pause' }]);
+
+    const owner = await watching(0);
+    assert.equal(toggleOf(owner.h, 'gowo-plus-viewer-control-toggle'), null, 'the owner controls the room anyway');
 });

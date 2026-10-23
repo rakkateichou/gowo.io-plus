@@ -7,7 +7,7 @@ import { parseHTML } from 'linkedom';
 const runtime = readFileSync(new URL('../gowo.io-plus.js', import.meta.url), 'utf8');
 const section = (start, end) => runtime.slice(runtime.indexOf(start), runtime.indexOf(end));
 const code = section('    function isEditableElement(', '    function initPlayerCursorBridge(') +
-    section('    const sevenTvEmotes =', '    function renderSevenTvEmotes(') +
+    section('    const sevenTvEmoteGroups =', '    function renderSevenTvEmotes(') +
     section('    function insertEmoteAtCaret(', '    const hideCallButtonPreferenceKey');
 
 function harness() {
@@ -28,8 +28,10 @@ function harness() {
         getComputedStyle: () => ({ gridTemplateColumns: '50px 50px 50px 50px', fontSize: '8px' }),
         getSelection: () => ({ toString: () => selection })
     };
+    const stored = new Map();
+    const localStorage = { getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, String(value)) };
     const context = vm.createContext({
-        document, window, Event, HTMLTextAreaElement,
+        document, window, Event, HTMLTextAreaElement, localStorage,
         KeyboardEvent: class extends Event {
             constructor(type, options) { super(type, options); this.key = options.key; }
         },
@@ -45,7 +47,7 @@ function harness() {
         return event;
     };
     return {
-        document, input, context, key,
+        document, input, context, key, stored,
         get stops() { return stops; },
         set selection(value) { selection = value; },
         get picker() { return document.getElementById('gowo-emote-picker'); },
@@ -161,4 +163,58 @@ test('after clicking emotes, Enter sends instead of inserting the focused one ag
     assert.deepEqual(sent, [value]);
     assert.equal(h.picker.hidden, true);
     assert.equal(h.document.activeElement, h.input);
+});
+
+const shown = h => ({
+    title: h.document.querySelector('.gowo-emote-picker-title').textContent,
+    tokens: h.options.map(option => option.dataset.emoteToken)
+});
+
+test('the picker shows one mood at a time; tabs and PageUp/PageDown turn the page', () => {
+    const h = harness();
+    h.document.getElementById('gowo-emote-toggle').click();
+    const tabs = [...h.document.querySelectorAll('.gowo-emote-tab')];
+    assert.deepEqual(tabs.map(tab => tab.title),
+        ['Частые', 'Смех', 'Радость', 'Праздник', 'Грусть', 'Удивление', 'Реакции', 'Кино и уют']);
+    assert.equal(tabs[0].hidden, true, 'nothing used yet');
+    assert.equal(shown(h).title, 'Смех');
+    assert.ok(shown(h).tokens.length <= 16);
+    assert.equal(tabs[1].getAttribute('aria-selected'), 'true');
+
+    tabs[4].click();
+    assert.equal(shown(h).title, 'Грусть');
+    assert.ok(shown(h).tokens.includes(':sadge:'));
+    assert.equal(h.document.activeElement, h.options[0], 'still ready for the arrow keys');
+    h.key(h.document.activeElement, { key: 'PageDown' });
+    assert.equal(shown(h).title, 'Удивление');
+    tabs[1].click();
+    h.key(h.document.activeElement, { key: 'PageUp' });
+    assert.equal(shown(h).title, 'Кино и уют', 'wraps around, past the empty page');
+
+    // Every emote is on exactly one page.
+    const all = [];
+    for (const tab of tabs.slice(1)) {
+        tab.click();
+        all.push(...shown(h).tokens);
+    }
+    assert.equal(new Set(all).size, all.length);
+    assert.equal(all.length, vm.runInContext('sevenTvEmotes.length', h.context));
+});
+
+test('the picker opens on what you pick and what the room uses most', () => {
+    const h = harness();
+    h.document.querySelector('app-chat-messages-room').insertAdjacentHTML('afterbegin', `
+        <div class="message"><img class="gowo-chat-emote" title=":sadge:"><img class="gowo-chat-emote" title=":sadge:"></div>
+        <div class="message"><img class="gowo-chat-emote" title=":pepepls:"></div>`);
+    const toggle = h.document.getElementById('gowo-emote-toggle');
+    toggle.click();
+    h.document.querySelectorAll('.gowo-emote-tab')[1].click();
+    h.options.find(option => option.dataset.emoteToken === ':hehe:').click();
+    toggle.click();
+    toggle.click();
+    const frequentTab = h.document.querySelector('.gowo-emote-tab');
+    assert.equal(frequentTab.hidden, false);
+    assert.equal(frequentTab.getAttribute('aria-selected'), 'true');
+    assert.deepEqual(shown(h), { title: 'Частые', tokens: [':sadge:', ':hehe:'] },
+        'most used first; retired emotes are not offered');
 });

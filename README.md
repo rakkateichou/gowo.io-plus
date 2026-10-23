@@ -16,7 +16,8 @@ A userscript for Tampermonkey and Safari Userscripts that enhances Gowo.io rooms
 - Reply text always starts below its quoted message
 - First-name-only quoted authors, using their chat nickname colour
 - Simple, uncircled chat-header icons with the original controls and tooltips
-- A responsive 48-emote 7TV picker with `:token:` autocomplete and inline animated rendering
+- A 97-emote 7TV picker in pages by mood that opens on the emotes you use most, with
+  `:token:` autocomplete and inline animated rendering
 - A dedicated Send button to the right of the chat field
 - A chat field that grows with its text up to six lines (**Shift+Enter** starts a new line)
 - Shared coloured cursors and smooth trails while holding `Ctrl` over the player
@@ -27,14 +28,22 @@ A userscript for Tampermonkey and Safari Userscripts that enhances Gowo.io rooms
 
 ## 7TV emotes
 
-Use the **☺** button beside the chat box, or type a token such as `:pog:`.
+Use the **☺** button beside the chat box, or type a token such as `:sadge:`.
 Type a colon and part of a name, such as `:pe`, to see up to eight matching
-emotes. Use **↑/↓** to choose, **Enter** or **Tab** to insert, or click a preview.
+emotes, the ones you use most first among equally good matches. Use **↑/↓** to choose, **Enter** or **Tab** to insert, or click a preview.
 **Escape** dismisses suggestions. Enter selects the emote while the list is
 open; press Enter again to send the completed message. Matching ignores case
 and also finds parts of names, such as `:run` for `:peeporun:`.
 
+The picker shows one page at a time, chosen with the tabs along its top:
+**Частые**, then one page per mood (**Смех**, **Радость**, **Праздник**,
+**Грусть**, **Удивление**, **Реакции**, **Кино и уют**), each small enough to
+need no scrolling. **Частые** holds the emotes used most: those you picked in
+this browser and those in this room's chat, everyone's included. The picker opens
+there once it has anything, so no emote is favoured just by its place in a list.
+
 Press `Ctrl+E` to open the picker from the keyboard (press it again to close).
+**PageUp** and **PageDown** turn the page.
 Move between emotes with the arrow keys, **Home** and **End**; **Enter** or
 **Space** inserts the emote and closes the picker, **Shift+Enter** inserts it and
 keeps the picker open, and **Escape** or **Tab** returns to the chat box.
@@ -42,12 +51,11 @@ keeps the picker open, and **Escape** or **Tab** returns to the chat box.
 copies as usual.
 
 The token stays ordinary Gowo.io chat text and is rendered as an emote for
-people running Gowo.io+. The fixed 48-emote catalogue matches the one in the
-[JellyWatchParty fork](https://github.com/rakkateichou/JellyWatchParty).
+people running Gowo.io+. The catalogue started as the 48 emotes of the
+[JellyWatchParty fork](https://github.com/rakkateichou/JellyWatchParty) and now
+has 97; retired tokens still render in existing messages.
 The picker keeps four columns in the 15% chat pane, with images that shrink and
-labels that wrap to fit narrow panels. It scrolls vertically as needed.
-The catalogue includes hi, NOOOO, catJAM, CAUGHT, peepoRun, peepoLove, TROLL, Aware, Prayge, RAGEY and Aloo;
-retired tokens still render in existing messages.
+labels that wrap to fit narrow panels.
 
 Emote images are served from this repository's `emotes/` folder, so they also
 load where the 7TV CDN is unreachable; 7TV is only used as a fallback.
@@ -104,6 +112,9 @@ browser, which repeats it as its own, so Gowo moves the whole room as usual.
 - The owner can switch it off with **Разрешить всем ставить на паузу и
   перематывать** in the room settings. It is on by default and remembered per
   browser.
+- A viewer who would rather not move the room by accident can switch off
+  **Ставить на паузу и перематывать для всех**: their pause, resume and seek
+  then stay their own, as in plain Gowo, and a timeline click does nothing.
 - Changing the episode stays with the owner.
 - The player notices no longer name the administrator: a paused room just says
   **Пауза**.
@@ -121,6 +132,10 @@ the relay with their name); without it the notice reads **покинул(а)**.
   a closed or reloaded tab at once. A reload that is back within the four
   seconds does not pause.
 - Closing one of several tabs of the same person does not count.
+- Anyone can switch off **Ставить на паузу для всех, когда я отключаюсь**, say
+  before restarting the browser: the room then keeps playing when they drop out.
+  The relay learns the choice when they join (and when it changes), so it holds
+  even when the browser closes without a word.
 - It needs the owner (or an admin) in the room with Gowo.io+, and only notices
   people who run Gowo.io+.
 - The owner can switch it off with **Ставить на паузу, если кто-то отключился**

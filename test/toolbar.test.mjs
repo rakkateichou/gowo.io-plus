@@ -578,3 +578,35 @@ test('Gowo pages refuse the floating video ad\'s scripts and frames as they are 
     assert.equal(add(new FakeFrame('https://dcee7d24.obrut.show/embed/abc')), true, 'the player');
     assert.equal(add(new FakeNode()), true);
 });
+
+test('with control turned off, a viewer gets no pointer and timeline clicks go nowhere', () => {
+    const html = `${frameHtml}<pjsdiv id="bar"></pjsdiv>`;
+    const h = harness(true, html, `${frameUrl}?api=1&readonly=1`);
+    h.document.querySelector('#bar').getBoundingClientRect = () => ({ left: 10, top: 640, width: 980, height: 4, right: 990, bottom: 644 });
+    const fire = (type, clientX, clientY) => {
+        const event = new (h.document.defaultView?.Event || Event)(type, { bubbles: true, cancelable: true });
+        Object.assign(event, { clientX, clientY, button: 0 });
+        h.document.querySelector('#oframeplayer').dispatchEvent(event);
+        h.flush();
+        return event.defaultPrevented;
+    };
+    const seeks = () => h.messages.splice(0).filter(item => item.message.type === 'seek').length;
+    const hovering = () => h.document.documentElement.classList.contains('gowo-seek-hover');
+    const tell = details => h.receive({ source: 'gowo-plus-seek-bridge-v1', type: 'player', ...details });
+
+    tell({ duration: 2704, control: false });
+    h.messages.length = 0;
+    fire('pointermove', 255, 642);
+    assert.equal(hovering(), false);
+    assert.equal(fire('click', 255, 642), true, 'still kept from pausing their own player');
+    assert.equal(seeks(), 0);
+
+    tell({ control: true });
+    fire('pointermove', 256, 642);
+    assert.equal(hovering(), true);
+    fire('click', 255, 642);
+    assert.equal(seeks(), 1);
+    // Turned off while hovering: the pointer goes at once.
+    tell({ control: false });
+    assert.equal(hovering(), false);
+});

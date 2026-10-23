@@ -556,11 +556,20 @@
         const fractionAt = (event, rect) => Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
         // The player tells the room page its length and position; the page
         // passes them on. Its <video> may not know its length before playing.
-        const known = { duration: 0, time: NaN, at: 0 };
+        // The viewer may have turned off controlling the room; timeline clicks
+        // are then still kept from pausing their own player, but go nowhere.
+        const known = { duration: 0, time: NaN, at: 0, control: true };
         window.addEventListener('message', event => {
             const data = event.data;
             if (event.source !== window.parent || event.origin !== 'https://gowo.io' ||
                 data?.source !== seekBridgeMarker || data.type !== 'player') return;
+            if (typeof data.control === 'boolean') {
+                known.control = data.control;
+                if (!known.control) {
+                    document.documentElement.classList.remove('gowo-seek-hover');
+                    hideHint();
+                }
+            }
             if (Number(data.duration) > 0) known.duration = Number(data.duration);
             if (Number.isFinite(data.time) && data.time >= 0) {
                 known.time = data.time;
@@ -610,7 +619,7 @@
             moveFrame = 0;
             const event = lastMove;
             const rect = timeline();
-            const over = inBand(event, rect);
+            const over = known.control && inBand(event, rect);
             document.documentElement.classList.toggle('gowo-seek-hover', over);
             if (pending) return;
             if (!over) return hideHint();
@@ -653,7 +662,7 @@
             if (!inBand(event, rect)) return;
             event.preventDefault();
             event.stopImmediatePropagation();
-            if (event.type !== 'click') return;
+            if (event.type !== 'click' || !known.control) return;
             const fraction = fractionAt(event, rect);
             window.parent.postMessage({ source: seekBridgeMarker, type: 'seek', fraction }, 'https://gowo.io');
             const length = duration();
@@ -843,58 +852,123 @@
         });
     }
 
-    // Mirrors the fixed 7TV catalogue used by rakkateichou/JellyWatchParty.
-    // Tokens remain ordinary chat text so rooms keep working without Gowo.io+.
-    const sevenTvEmotes = Object.freeze([
-        { token: ':pog:', label: 'Pog', id: '01EZTCN91800012PTN006Q50PR' },
-        { token: ':kekw:', label: 'KEKW', id: '01F61B1440000991F7SWQNMVX7' },
-        { token: ':sus:', label: 'Sus', id: '01HEKHE1MG0006REJ2K5EAP1N2' },
-        { token: ':copium:', label: 'Copium', id: '01F6ME7ADR0000WDA7ERT9H30R' },
-        { token: ':cry:', label: 'Cry', id: '01FC93557G000865A5YMK9D4S2' },
-        { token: ':hype:', label: 'Hype', id: '01F6NMD520000AAS5FM9QEF9ZJ' },
-        { token: ':booba:', label: 'BOOBA', id: '01F6N31ETR0004P7N4A9PKS5X9' },
-        { token: ':dead:', label: 'Dead', id: '01F8YE5QNR00081476FRV8XDEZ' },
-        { token: ':clown:', label: 'Clown', id: '01G9FX2GSG000B7F9Y9BJECXYV' },
-        { token: ':aintnoway:', label: 'AINTNOWAY', id: '01GDDQVMH000038Q48APH8VE3Q' },
-        { token: ':eyes:', label: 'Eyes', id: '01FSNNDJG80000JPZ36BHMFR5N' },
-        { token: ':popcorn:', label: 'Popcorn', id: '01F86QDWK800018ZVH7PJSP4S5' },
-        { token: ':salute:', label: 'Salute', id: '01F6Q8CVB000015Y8FNQBA5VBR' },
-        { token: ':chef:', label: 'Chef', id: '01FFR5Q96R0007P57XYW0BJAXG' },
-        { token: ':party:', label: 'Party', id: '01F6Q93YK8000EQZ7QARQERNWC' },
-        { token: ':prayge:', label: 'Prayge', id: '01F6NACCD80006SZ7ZW5FMWKWK' },
-        { token: ':peepolove:', label: 'peepoLove', id: '01F6NPP6YG00013ACMMJP3W06V' },
-        { token: ':uhh:', label: 'uhh', id: '01H0405680000AJFXTYVX2PNJ7' },
-        { token: ':petpet:', label: 'PETPET', id: '01FE3XY508000AA32JP519W2EW' },
-        { token: ':ppl:', label: 'ppL', id: '01GGD5PJA8000FH13S498E9D8X' },
-        { token: ':clap:', label: 'Clap', id: '01GAM8EFQ00004MXFXAJYKA859' },
-        { token: ':aware:', label: 'Aware', id: '01FFWH9WV80000JT8GHDKHJNZC' },
-        { token: ':peepohappy:', label: 'peepoHappy', id: '01GAZ199Z8000FEWHS6AT5QZV0' },
-        { token: ':peeposad:', label: 'peepoSad', id: '01GAZ4SBX80007YCE2RXBT44B2' },
-        { token: ':peeporun:', label: 'peepoRun', id: '01F6Q045KR0005589X3BDQHRAY' },
-        { token: ':ragey:', label: 'RAGEY', id: '01GBFAYKGR000FWWN7MDZZ8XQN' },
-        { token: ':hi:', label: 'hi', id: '01GX6M9TRR000DJJ63WGMEA4Z8' },
-        { token: ':noooo:', label: 'NOOOO', id: '01F6MKTFTG0009C9ZSNZTFV2ZF' },
-        { token: ':caught:', label: 'CAUGHT', id: '01H0SQNM9R0005HNCSM10SYJEQ' },
-        { token: ':catjam:', label: 'catJAM', id: '01F6MQ33FG000FFJ97ZB8MWV52' },
-        { token: ':peepopls:', label: 'peepoPls', id: '01HM524VE80004SKSHMCZWXH1T' },
-        { token: ':teatime:', label: 'TeaTime', id: '01HM4P26CR000449DZBT4FVMA5' },
-        { token: ':pianotime:', label: 'PianoTime', id: '01G98V81Q80000BRQD106P0ZEK' },
-        { token: ':winetime:', label: 'WineTime', id: '01HM4PGHC80007635TAZG67FT5' },
-        { token: ':peepocomfy:', label: 'peepoComfy', id: '01FAJRZBRR0002R979W3KES4A1' },
-        { token: ':biblethump:', label: 'BibleThump', id: '01J8NMZ2HG0005G1FWF2H9Y615' },
-        { token: ':glorp:', label: 'glorp', id: '01H16FA16G0005EZED5J0EY7KN' },
-        { token: ':stare:', label: 'Stare', id: '01GG3YGWK8000DWE419062SG28' },
-        { token: ':troll:', label: 'TROLL', id: '01F6P1E7QR0002RDNAW6FFQ1E0' },
-        { token: ':ayaya:', label: 'AYAYA', id: '01GB32XE6R00018VJGJ4A9BNCV' },
-        { token: ':vibe:', label: 'VIBE', id: '01FYQZVG280006SX8JX4TD7SJA' },
-        { token: ':feelsweirdman:', label: 'FeelsWeirdMan', id: '01GB4FWTR8000DGEZ8VYY59RBN' },
-        { token: ':ez:', label: 'EZ', id: '01GB4CK01800090V9B3D8CGEEX' },
-        { token: ':feelsokayman:', label: 'FeelsOkayMan', id: '01GB46137R000BJ5HR8F6XV8J1' },
-        { token: ':nerd:', label: 'Nerd', id: '01FEV00990000FCZBKX8KY8JRF' },
-        { token: ':7cinema:', label: '7Cinema', id: '01GBFDVP18000CRDCG0DV7KEMY' },
-        { token: ':xdx:', label: 'xdx', id: '01FZBTBQDG000DX0N9GHCRXYPH' },
-        { token: ':aloo:', label: 'Aloo', id: '01F6PRA3N80003BH8AEY9DWKDQ' }
+    // The picker's catalogue, by mood; each group fits on one page of the
+    // picker. Tokens remain ordinary chat text so rooms keep working without
+    // Gowo.io+.
+    const sevenTvEmoteGroups = Object.freeze([
+        { label: 'Смех', emotes: [
+            { token: ':kekw:', label: 'KEKW', id: '01F61B1440000991F7SWQNMVX7' },
+            { token: ':omegalul:', label: 'OMEGALUL', id: '01F00Z3A9G0007E4VV006YKSK9' },
+            { token: ':lulw:', label: 'LULW', id: '01F22WE74G000F9Q0G00A2DE8N' },
+            { token: ':icant:', label: 'ICANT', id: '01FA0PBXM8000AD7Y8T9ZMTFZ5' },
+            { token: ':pepelaugh:', label: 'pepeLaugh', id: '01F6Q76NN80005589X3BDK9CN1' },
+            { token: ':xdx:', label: 'xdx', id: '01FZBTBQDG000DX0N9GHCRXYPH' },
+            { token: ':hehe:', label: 'hehe', id: '01FKX3VFNR0004X8QJ9S80KD17' },
+            { token: ':peepogiggles:', label: 'peepoGiggles', id: '01F6NTA4X80007X1R6PNS21T6E' },
+            { token: ':troll:', label: 'TROLL', id: '01F6P1E7QR0002RDNAW6FFQ1E0' },
+            { token: ':clown:', label: 'Clown', id: '01G9FX2GSG000B7F9Y9BJECXYV' },
+            { token: ':ez:', label: 'EZ', id: '01GB4CK01800090V9B3D8CGEEX' },
+            { token: ':pepega:', label: 'Pepega', id: '01EZTD6KQ800012PTN006Q50PV' }
+        ] },
+        { label: 'Радость', emotes: [
+            { token: ':peepohappy:', label: 'peepoHappy', id: '01GAZ199Z8000FEWHS6AT5QZV0' },
+            { token: ':widepeepohappy:', label: 'widepeepoHappy', id: '01GF1Y2Q5G0000BGNJSP34TQRD' },
+            { token: ':feelsgoodman:', label: 'FeelsGoodMan', id: '01F7YR10C00004BT9YH569GV48' },
+            { token: ':feelsokayman:', label: 'FeelsOkayMan', id: '01GB46137R000BJ5HR8F6XV8J1' },
+            { token: ':okayge:', label: 'Okayge', id: '01F7GJ0N4R00074A83FVHRDMDB' },
+            { token: ':gladge:', label: 'Gladge', id: '01F6N6N8WG00052X5637DPSM77' },
+            { token: ':peepolove:', label: 'peepoLove', id: '01F6NPP6YG00013ACMMJP3W06V' },
+            { token: ':catkiss:', label: 'catKISS', id: '01F5VW2TKR0003RCV2Z6JBHCST' },
+            { token: ':peeposhy:', label: 'peepoShy', id: '01GK4EW2AG0004SH49XX2J74KJ' },
+            { token: ':ayaya:', label: 'AYAYA', id: '01GB32XE6R00018VJGJ4A9BNCV' },
+            { token: ':hi:', label: 'hi', id: '01GX6M9TRR000DJJ63WGMEA4Z8' },
+            { token: ':peepohey:', label: 'peepoHey', id: '01F6NMMEER00015NVG2J8ZH77N' },
+            { token: ':peepowave:', label: 'peepoWave', id: '01FB6GQVG80001AXCAFYD4XA0T' },
+            { token: ':salute:', label: 'Salute', id: '01F6Q8CVB000015Y8FNQBA5VBR' },
+            { token: ':petpet:', label: 'PETPET', id: '01FE3XY508000AA32JP519W2EW' },
+            { token: ':booba:', label: 'BOOBA', id: '01F6N31ETR0004P7N4A9PKS5X9' }
+        ] },
+        { label: 'Праздник', emotes: [
+            { token: ':hype:', label: 'Hype', id: '01F6NMD520000AAS5FM9QEF9ZJ' },
+            { token: ':party:', label: 'Party', id: '01F6Q93YK8000EQZ7QARQERNWC' },
+            { token: ':letsgo:', label: 'LETSGO', id: '01F6RD7B88000B4N55W5NS55R7' },
+            { token: ':yippee:', label: 'YIPPEE', id: '01G9JW7WY80003SW3KYSMQE9YY' },
+            { token: ':clap:', label: 'Clap', id: '01GAM8EFQ00004MXFXAJYKA859' },
+            { token: ':peepoclap:', label: 'peepoClap', id: '01F6NET6G00009JYTB75QDKV1S' },
+            { token: ':catjam:', label: 'catJAM', id: '01F6MQ33FG000FFJ97ZB8MWV52' },
+            { token: ':vibe:', label: 'VIBE', id: '01FYQZVG280006SX8JX4TD7SJA' },
+            { token: ':peepopls:', label: 'peepoPls', id: '01HM524VE80004SKSHMCZWXH1T' },
+            { token: ':ppl:', label: 'ppL', id: '01GGD5PJA8000FH13S498E9D8X' },
+            { token: ':pepejam:', label: 'pepeJAM', id: '01EZY967K0000CYST6006V20T8' },
+            { token: ':ratjam:', label: 'ratJAM', id: '01F6QV6G8R0000TEKRM6BFG0Z3' },
+            { token: ':jammies:', label: 'Jammies', id: '01GB5S18QG00090V9B3D8CGHNG' },
+            { token: ':nodders:', label: 'NODDERS', id: '01F6MDFCSR0000WDA7ERT623YT' },
+            { token: ':gigachad:', label: 'GIGACHAD', id: '01F6MZGCNG000255K4X1K7NTHR' },
+            { token: ':wicked:', label: 'WICKED', id: '01F6NM2T080003C6R1CKK0T0P2' }
+        ] },
+        { label: 'Грусть', emotes: [
+            { token: ':sadge:', label: 'Sadge', id: '01EZPG1FN80001SNAW00ADK2DY' },
+            { token: ':widepeeposad:', label: 'widepeepoSad', id: '01GF1YB3Q800098Y8CCB8YXT8Z' },
+            { token: ':pepehands:', label: 'PepeHands', id: '01F010G3WG0007E4VV006YKSKP' },
+            { token: ':feelsbadman:', label: 'FeelsBadMan', id: '01GB8HJ61R0000X4MX5ZF49QE8' },
+            { token: ':cry:', label: 'Cry', id: '01FC93557G000865A5YMK9D4S2' },
+            { token: ':peeposad:', label: 'peepoSad', id: '01GAZ4SBX80007YCE2RXBT44B2' },
+            { token: ':biblethump:', label: 'BibleThump', id: '01J8NMZ2HG0005G1FWF2H9Y615' },
+            { token: ':noooo:', label: 'NOOOO', id: '01F6MKTFTG0009C9ZSNZTFV2ZF' },
+            { token: ':dead:', label: 'Dead', id: '01F8YE5QNR00081476FRV8XDEZ' },
+            { token: ':copium:', label: 'Copium', id: '01F6ME7ADR0000WDA7ERT9H30R' },
+            { token: ':prayge:', label: 'Prayge', id: '01F6NACCD80006SZ7ZW5FMWKWK' }
+        ] },
+        { label: 'Удивление', emotes: [
+            { token: ':pog:', label: 'Pog', id: '01EZTCN91800012PTN006Q50PR' },
+            { token: ':pogu:', label: 'PogU', id: '01F6M3N17G000B5V5G2M2RYJN7' },
+            { token: ':poggers:', label: 'POGGERS', id: '01F6P0803G000898NRWSAKGYXT' },
+            { token: ':aintnoway:', label: 'AINTNOWAY', id: '01GDDQVMH000038Q48APH8VE3Q' },
+            { token: ':huh:', label: 'HUH', id: '01FKKW7C1G0008TM5NY9QEFEDW' },
+            { token: ':monkas:', label: 'monkaS', id: '01F78CHJ2G0005TDSTZFBDGMK4' },
+            { token: ':monkaw:', label: 'monkaW', id: '01F6NPHCN0000BEKN8ZXWQNSDC' },
+            { token: ':eyes:', label: 'Eyes', id: '01FSNNDJG80000JPZ36BHMFR5N' },
+            { token: ':stare:', label: 'Stare', id: '01GG3YGWK8000DWE419062SG28' },
+            { token: ':sus:', label: 'Sus', id: '01HEKHE1MG0006REJ2K5EAP1N2' },
+            { token: ':susge:', label: 'Susge', id: '01F6S7PENR0008HT14D95H43BY' },
+            { token: ':caught:', label: 'CAUGHT', id: '01H0SQNM9R0005HNCSM10SYJEQ' },
+            { token: ':aware:', label: 'Aware', id: '01FFWH9WV80000JT8GHDKHJNZC' },
+            { token: ':clueless:', label: 'Clueless', id: '01F6T8NM9R0007M5BTFWSP1YSJ' },
+            { token: ':pausechamp:', label: 'PauseChamp', id: '01F6N2GFVR000F76KNAAVCSDGX' }
+        ] },
+        { label: 'Реакции', emotes: [
+            { token: ':hmm:', label: 'Hmm', id: '01F6MA6Y100002B6P5MWZ5D916' },
+            { token: ':monkahmm:', label: 'monkaHmm', id: '01F6Q5GT1000015Y8FNQB5ZCD8' },
+            { token: ':erm:', label: 'Erm', id: '01GNG5CGM000043VNACR8SMB6D' },
+            { token: ':uhh:', label: 'uhh', id: '01H0405680000AJFXTYVX2PNJ7' },
+            { token: ':nerd:', label: 'Nerd', id: '01FEV00990000FCZBKX8KY8JRF' },
+            { token: ':feelsweirdman:', label: 'FeelsWeirdMan', id: '01GB4FWTR8000DGEZ8VYY59RBN' },
+            { token: ':glorp:', label: 'glorp', id: '01H16FA16G0005EZED5J0EY7KN' },
+            { token: ':madge:', label: 'Madge', id: '01F6ASPNM00009TPCEMWQTT4XX' },
+            { token: ':reallymad:', label: 'ReallyMad', id: '01FN8W1EP8000EXJQ7MWJVSDMP' },
+            { token: ':smadge:', label: 'Smadge', id: '01F763W03G0005BGS0Y3M6JDP9' },
+            { token: ':ragey:', label: 'RAGEY', id: '01GBFAYKGR000FWWN7MDZZ8XQN' },
+            { token: ':nopers:', label: 'NOPERS', id: '01EZY51MDR000CYST6006V20T4' },
+            { token: ':based:', label: 'BASED', id: '01F031CCA80001TJB3006SVBHS' },
+            { token: ':chatting:', label: 'Chatting', id: '01FAK9C8MR0004HKF2ZK1YPQ5A' }
+        ] },
+        { label: 'Кино и уют', emotes: [
+            { token: ':popcorn:', label: 'Popcorn', id: '01F86QDWK800018ZVH7PJSP4S5' },
+            { token: ':peepopopcorn:', label: 'peepoPopcorn', id: '01FB19MF9G000C0Z8TR69HN9RP' },
+            { token: ':7cinema:', label: '7Cinema', id: '01GBFDVP18000CRDCG0DV7KEMY' },
+            { token: ':teatime:', label: 'TeaTime', id: '01HM4P26CR000449DZBT4FVMA5' },
+            { token: ':winetime:', label: 'WineTime', id: '01HM4PGHC80007635TAZG67FT5' },
+            { token: ':pianotime:', label: 'PianoTime', id: '01G98V81Q80000BRQD106P0ZEK' },
+            { token: ':peepocomfy:', label: 'peepoComfy', id: '01FAJRZBRR0002R979W3KES4A1' },
+            { token: ':peepoblanket:', label: 'peepoBlanket', id: '01F6N1S0WG000FD8P3PCSBAWR1' },
+            { token: ':bedge:', label: 'Bedge', id: '01F6MXJD8R000F76KNAAV5HDGD' },
+            { token: ':wokege:', label: 'Wokege', id: '01FEEK9MRG000FR0PC38FM26SD' },
+            { token: ':chef:', label: 'Chef', id: '01FFR5Q96R0007P57XYW0BJAXG' },
+            { token: ':peeporun:', label: 'peepoRun', id: '01F6Q045KR0005589X3BDQHRAY' },
+            { token: ':aloo:', label: 'Aloo', id: '01F6PRA3N80003BH8AEY9DWKDQ' }
+        ] }
     ]);
+    const sevenTvEmotes = Object.freeze(sevenTvEmoteGroups.flatMap(group => group.emotes));
     // Retired picker entries remain supported in existing chat history.
     const sevenTvLegacyEmotes = [
         { token: ':pepepls:', label: 'PepePls', id: '01GAFTZ9K80003DHH026MC7JW0' },
@@ -1039,7 +1113,45 @@
         }
 
         setComposerValue(input, nextValue, start + insertion.length);
+        noteEmoteUse(token.toLowerCase());
         return true;
+    }
+
+    // How much each emote is used: picked in this browser, or seen in this
+    // room's chat. The picker opens on the most used instead of a fixed order,
+    // and suggestions rank by it.
+    const emoteUsesKey = 'gowo-plus-emote-uses-v1';
+
+    function readEmoteUses() {
+        try {
+            const uses = JSON.parse(localStorage.getItem(emoteUsesKey));
+            return uses && typeof uses === 'object' ? uses : {};
+        } catch {
+            return {};
+        }
+    }
+
+    function noteEmoteUse(token) {
+        const uses = readEmoteUses();
+        uses[token] = (Number(uses[token]) || 0) + 1;
+        try { localStorage.setItem(emoteUsesKey, JSON.stringify(uses)); } catch {}
+    }
+
+    function emoteScores() {
+        const scores = new Map(Object.entries(readEmoteUses()).map(([token, count]) => [token, Number(count) || 0]));
+        for (const image of document.querySelectorAll('app-chat-messages-room .gowo-chat-emote')) {
+            // A quote repeats the message it answers.
+            if (image.closest('.text__reply')) continue;
+            const token = image.title.toLowerCase();
+            scores.set(token, (scores.get(token) || 0) + 1);
+        }
+        return scores;
+    }
+
+    function frequentEmotes(limit = 16) {
+        const scores = emoteScores();
+        return sevenTvEmotes.filter(emote => scores.get(emote.token) > 0)
+            .sort((a, b) => scores.get(b.token) - scores.get(a.token)).slice(0, limit);
     }
 
     // The message field grows with its text up to a few lines, then scrolls.
@@ -1177,10 +1289,13 @@
         const query = match[1].toLowerCase();
         const start = caret - query.length - 1;
         const end = caret + value.slice(caret).match(/^[a-z0-9]*:?/i)[0].length;
+        // Names that start with what was typed come first, then the most used.
+        const scores = emoteScores();
+        const prefix = emote => Number(emote.token.slice(1).startsWith(query));
         const matches = sevenTvEmotes.filter(emote =>
             emote.token.includes(query) || emote.label.toLowerCase().includes(query)
-        ).sort((a, b) => Number(b.token.slice(1).startsWith(query)) -
-            Number(a.token.slice(1).startsWith(query))).slice(0, 8);
+        ).sort((a, b) => prefix(b) - prefix(a) ||
+            (scores.get(b.token) || 0) - (scores.get(a.token) || 0)).slice(0, 8);
         return matches.length ? { start, end, matches, key: JSON.stringify([value, caret]) } : null;
     }
 
@@ -1403,32 +1518,74 @@
         picker.setAttribute('role', 'dialog');
         picker.setAttribute('aria-label', '7TV emotes');
 
+        // One page at a time, each without scrolling: the emotes used most,
+        // or one mood.
+        const pages = [{ label: 'Частые', frequent: true }, ...sevenTvEmoteGroups];
+        const tabs = document.createElement('div');
+        tabs.className = 'gowo-emote-tabs';
+        tabs.setAttribute('role', 'tablist');
+        for (const [index, page] of pages.entries()) {
+            const tab = document.createElement('button');
+            tab.type = 'button';
+            tab.className = 'gowo-emote-tab';
+            tab.dataset.page = String(index);
+            tab.title = page.label;
+            tab.setAttribute('role', 'tab');
+            tab.setAttribute('aria-label', page.label);
+            if (page.frequent) {
+                tab.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+                    '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+            } else {
+                tab.append(createSevenTvEmoteImage(page.emotes[0], true));
+            }
+            tabs.append(tab);
+        }
+        picker.append(tabs);
+
         const title = document.createElement('div');
         title.className = 'gowo-emote-picker-title';
-        title.textContent = '7TV emotes';
         picker.append(title);
 
         const grid = document.createElement('div');
         grid.className = 'gowo-emote-grid';
-        sevenTvEmotes.forEach(emote => {
+        grid.setAttribute('role', 'tabpanel');
+        picker.append(grid);
+
+        const hint = document.createElement('div');
+        hint.className = 'gowo-emote-picker-hint';
+        hint.textContent = 'В чате тоже можно: двоеточие и начало названия';
+        picker.append(hint);
+
+        const createOption = emote => {
             const option = document.createElement('button');
             option.type = 'button';
             option.className = 'gowo-emote-option';
             option.dataset.emoteToken = emote.token;
             option.title = emote.token;
             option.setAttribute('aria-label', emote.label);
-
             const label = document.createElement('small');
             label.textContent = emote.label;
             option.append(createSevenTvEmoteImage(emote, true), label);
-            grid.append(option);
-        });
-        picker.append(grid);
-
-        const hint = document.createElement('div');
-        hint.className = 'gowo-emote-picker-hint';
-        hint.textContent = 'You can also type an emote token, like :pog:';
-        picker.append(hint);
+            return option;
+        };
+        let frequent = [];
+        let currentPage = 1;
+        const showPage = index => {
+            currentPage = index;
+            for (const tab of tabs.children) {
+                tab.setAttribute('aria-selected', String(tab.dataset.page === String(index)));
+            }
+            title.textContent = pages[index].label;
+            grid.replaceChildren(...(pages[index].frequent ? frequent : pages[index].emotes).map(createOption));
+            grid.scrollTop = 0;
+            scheduleLabelFit();
+        };
+        // PageUp and PageDown leaf through the pages that have something.
+        const turnPage = step => {
+            const shown = [...tabs.children].filter(tab => !tab.hidden).map(tab => Number(tab.dataset.page));
+            showPage(shown[(shown.indexOf(currentPage) + step + shown.length) % shown.length]);
+        };
+        const focusFirstEmote = () => focusEmoteOption(grid, grid.querySelector('.gowo-emote-option'));
 
         let fitScheduled = false;
         const scheduleLabelFit = () => {
@@ -1464,19 +1621,28 @@
                 input.focus({ preventScroll: true });
                 return;
             }
-            scheduleLabelFit();
+            // Open on the most used, once there are any.
+            frequent = frequentEmotes();
+            tabs.firstElementChild.hidden = !frequent.length;
+            showPage(frequent.length ? 0 : 1);
             // Focus the grid so arrows work at once, without a keyboard outline
             // until one is pressed. Typing returns to the chat box.
             picker.classList.add('gowo-emote-pointer');
-            focusEmoteOption(grid, grid.querySelector('.gowo-emote-option'));
+            focusFirstEmote();
         });
         picker.addEventListener('mousedown', event => {
-            if (event.target.closest('.gowo-emote-option')) {
+            if (event.target.closest('.gowo-emote-option, .gowo-emote-tab')) {
                 event.preventDefault();
             }
         });
         picker.addEventListener('click', event => {
             event.stopPropagation();
+            const tab = event.target.closest('.gowo-emote-tab');
+            if (tab) {
+                showPage(Number(tab.dataset.page));
+                focusFirstEmote();
+                return;
+            }
             const option = event.target.closest('.gowo-emote-option');
             if (option?.dataset.emoteToken) {
                 insertEmoteAtCaret(input, option.dataset.emoteToken);
@@ -1518,6 +1684,11 @@
                 focusEmoteOption(grid, options[
                     Math.max(0, Math.min(options.length - 1, moves[event.key]))
                 ]);
+            } else if (event.key === 'PageUp' || event.key === 'PageDown') {
+                event.preventDefault();
+                event.stopPropagation();
+                turnPage(event.key === 'PageDown' ? 1 : -1);
+                focusFirstEmote();
             } else if (event.key === 'Enter' || event.key === ' ') {
                 // Handle Enter here so the button's synthetic click cannot insert twice.
                 event.preventDefault();
@@ -1718,8 +1889,13 @@
     let playbackTime = 0;
     let playbackDuration = 0;
 
+    // A setting kept in this browser, on unless turned off.
+    function readSwitch(key) {
+        try { return localStorage.getItem(key) !== 'false'; } catch { return true; }
+    }
+
     function readSharedPausePreference() {
-        try { return localStorage.getItem(sharedPausePreferenceKey) !== 'false'; } catch { return true; }
+        return readSwitch(sharedPausePreferenceKey);
     }
 
     // The turbo player is told whether it may control the room.
@@ -1785,7 +1961,7 @@
     let playbackNoticeText = '';
 
     function readAutoPausePreference() {
-        try { return localStorage.getItem(autoPausePreferenceKey) !== 'false'; } catch { return true; }
+        return readSwitch(autoPausePreferenceKey);
     }
 
     const peerFirstName = name => String(name || '').trim().split(/\s+/)[0] || 'Кто-то';
@@ -1845,6 +2021,8 @@
         // Still here in another tab, or one of our own other tabs closing.
         if (peerPresent(username) || username === cursorNickname() || autoPauseTimers.has(username)) return;
         if (autoPausedFor === username && playbackNoticeText) showAutoPause(username, gender);
+        // They chose not to stop the room when they go, say to restart the browser.
+        if (message.keepPlaying === true) return;
         if (playbackRole() !== 'controller' || !readAutoPausePreference() || !playbackPlaying) return;
         autoPauseTimers.set(username, setTimeout(() => {
             autoPauseTimers.delete(username);
@@ -1874,7 +2052,8 @@
             if (viewer) frame.contentWindow?.postMessage({ source: seekBridgeMarker, type: 'player', ...details }, frameOrigin);
         };
         const requestPlayback = (action, time) => {
-            if (playbackRole() !== 'viewer' || !cursorJoinSent || cursorSocket?.readyState !== WebSocket.OPEN) return;
+            if (playbackRole() !== 'viewer' || !readSwitch(viewerControlPreferenceKey) ||
+                !cursorJoinSent || cursorSocket?.readyState !== WebSocket.OPEN) return;
             cursorSocket.send(JSON.stringify({ type: 'control', action, ...(action === 'seek' ? { time } : {}) }));
         };
         const askLength = () => frame.contentWindow?.postMessage({ api: 'duration' }, frameOrigin);
@@ -1882,8 +2061,8 @@
         if (data.source === seekBridgeMarker) {
             // The player script (re)started and wants what is known so far.
             if (data.type === 'request') {
-                if (playbackDuration) tellFrame({ duration: playbackDuration });
-                else askLength();
+                tellFrame({ control: readSwitch(viewerControlPreferenceKey), ...(playbackDuration ? { duration: playbackDuration } : {}) });
+                if (!playbackDuration) askLength();
                 return;
             }
             const fraction = Number(data.fraction);
@@ -1919,15 +2098,15 @@
     });
 
     // An owner-only switch, on unless turned off, remembered per browser.
-    function syncOwnerToggle(form, id, key, label, anchor) {
+    // A switch in the room's chat settings. Its audience is whose it is:
+    // whoever controls the room (the owner or an admin), a viewer, or anyone.
+    function syncSettingToggle(form, { id, key, label, audience, onChange }, anchor) {
         const existing = document.getElementById(id);
-        // Only whoever controls the room has something to allow.
-        if (!form || playbackRole() !== 'controller') {
+        if (!form || (audience && playbackRole() !== audience)) {
             existing?.closest('.gowo-setting-row')?.remove();
             return;
         }
-        let enabled = true;
-        try { enabled = localStorage.getItem(key) !== 'false'; } catch {}
+        const enabled = readSwitch(key);
         if (existing) {
             if (existing.checked !== enabled) existing.checked = enabled;
             return;
@@ -1948,17 +2127,51 @@
         toggle.checked = enabled;
         toggle.addEventListener('change', () => {
             try { localStorage.setItem(key, String(toggle.checked)); } catch {}
+            onChange?.(toggle.checked);
         });
+    }
+
+    // Someone may leave on purpose, say to restart the browser, without the
+    // room stopping for everyone. The relay hears the choice on joining, so it
+    // holds even when the browser goes without a word.
+    const pauseOnLeavePreferenceKey = 'gowo-plus-pause-on-my-leave';
+    const pauseOnLeaveToggleId = 'gowo-plus-pause-on-my-leave-toggle';
+    // A viewer may turn off controlling the room, so a stray click pauses or
+    // seeks nobody else's player. The player script is told; this page drops
+    // any such request.
+    const viewerControlPreferenceKey = 'gowo-plus-viewer-control';
+    const viewerControlToggleId = 'gowo-plus-viewer-control-toggle';
+    const playbackSettings = [
+        { id: sharedPauseToggleId, key: sharedPausePreferenceKey, audience: 'controller',
+            label: 'Разрешить всем ставить на паузу и перематывать' },
+        { id: autoPauseToggleId, key: autoPausePreferenceKey, audience: 'controller',
+            label: 'Ставить на паузу, если кто-то отключился' },
+        { id: pauseOnLeaveToggleId, key: pauseOnLeavePreferenceKey,
+            label: 'Ставить на паузу для всех, когда я отключаюсь', onChange: announceLeaveChoice },
+        { id: viewerControlToggleId, key: viewerControlPreferenceKey, audience: 'viewer',
+            label: 'Ставить на паузу и перематывать для всех', onChange: tellPlayerControlSetting }
+    ];
+
+    function announceLeaveChoice(pause) {
+        sendRelayPacket({ type: 'presence', keepPlaying: !pause });
+    }
+
+    function tellPlayerControlSetting() {
+        const frame = roomToolbar?.frame;
+        if (!frame?.contentWindow || playbackRole() !== 'viewer') return;
+        frame.contentWindow.postMessage({
+            source: seekBridgeMarker, type: 'player', control: readSwitch(viewerControlPreferenceKey)
+        }, new URL(frame.src).origin);
     }
 
     function injectPlaybackSettings() {
         const form = document.querySelector('app-chat-settings-room .settings form');
-        syncOwnerToggle(form, sharedPauseToggleId, sharedPausePreferenceKey,
-            'Разрешить всем ставить на паузу и перематывать',
-            document.getElementById(hideCallButtonToggleId)?.closest('.gowo-setting-row') || form?.firstElementChild);
-        syncOwnerToggle(form, autoPauseToggleId, autoPausePreferenceKey,
-            'Ставить на паузу, если кто-то отключился',
-            document.getElementById(sharedPauseToggleId)?.closest('.gowo-setting-row'));
+        let anchor = document.getElementById(hideCallButtonToggleId)?.closest('.gowo-setting-row') ||
+            form?.firstElementChild;
+        for (const setting of playbackSettings) {
+            syncSettingToggle(form, setting, anchor);
+            anchor = document.getElementById(setting.id)?.closest('.gowo-setting-row') || anchor;
+        }
     }
 
     function syncRoomToolbar(force = false) {
@@ -2410,7 +2623,8 @@
                 room: cursorRoomKey,
                 client: cursorClientId,
                 username: cursorNickname(),
-                ...(cursorIdentityGender ? { gender: cursorIdentityGender } : {})
+                ...(cursorIdentityGender ? { gender: cursorIdentityGender } : {}),
+                ...(readSwitch(pauseOnLeavePreferenceKey) ? {} : { keepPlaying: true })
             }));
             cursorJoinSent = true;
             requestChatSync();
@@ -4209,6 +4423,47 @@
         }
         #${emotePickerId} * { box-sizing: border-box; }
         #${emotePickerId}[hidden] { display: none!important; }
+        .gowo-emote-tabs {
+            display: flex;
+            gap: 2px;
+            margin-bottom: 6px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #2a2a2a;
+        }
+        .gowo-emote-tab {
+            flex: 1 1 0;
+            min-width: 0;
+            height: 28px;
+            padding: 2px;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            background: transparent;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            opacity: 0.55;
+            transition: opacity 120ms ease, background 120ms ease;
+        }
+        .gowo-emote-tab[hidden] { display: none; }
+        .gowo-emote-tab:hover { opacity: 0.85; background: #1d1d1d; }
+        .gowo-emote-tab[aria-selected="true"] {
+            opacity: 1;
+            border-color: #444;
+            background: #242424;
+        }
+        .gowo-emote-tab .gowo-emote-picker-image {
+            height: 20px!important;
+            max-width: 100%!important;
+        }
+        .gowo-emote-tab svg {
+            width: 18px;
+            height: 18px;
+            fill: none;
+            stroke: #ddd;
+            stroke-width: 2;
+            stroke-linecap: round;
+        }
         .gowo-emote-picker-title {
             margin-bottom: 6px;
             color: #ddd;
@@ -4220,6 +4475,9 @@
             /* Keep four columns in the 15% chat pane; images and labels below
                can shrink or wrap instead of forcing a wider minimum cell. */
             grid-template-columns: repeat(4, minmax(0, 1fr));
+            /* Four rows on every page, so switching pages never resizes it. */
+            grid-template-rows: repeat(4, minmax(60px, auto));
+            align-content: start;
             gap: 4px;
             max-height: min(55vh, 420px);
             overflow-x: hidden;

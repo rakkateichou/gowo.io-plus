@@ -6,7 +6,7 @@ import { parseHTML } from 'linkedom';
 
 const runtime = readFileSync(new URL('../gowo.io-plus.js', import.meta.url), 'utf8');
 const section = (start, end) => runtime.slice(runtime.indexOf(start), runtime.indexOf(end));
-const code = section('    const sevenTvEmotes =', '    function renderSevenTvEmotes(') +
+const code = section('    const sevenTvEmoteGroups =', '    function renderSevenTvEmotes(') +
     section('    function insertEmoteAtCaret(', '    function fitEmotePickerLabels(');
 
 function harness() {
@@ -21,7 +21,9 @@ function harness() {
         field.setSelectionRange = (start, end) => { field.selectionStart = start; field.selectionEnd = end; };
     };
     prepareInput(input);
-    const context = vm.createContext({ document, Event, HTMLTextAreaElement,
+    const stored = new Map();
+    const localStorage = { getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, String(value)) };
+    const context = vm.createContext({ document, Event, HTMLTextAreaElement, localStorage,
         KeyboardEvent: class extends Event {
             constructor(type, options) { super(type, options); this.key = options.key; }
         }
@@ -36,7 +38,7 @@ function harness() {
         return event;
     };
     return {
-        document, input, form, context, fire, prepareInput,
+        document, input, form, context, fire, prepareInput, stored,
         get list() { return document.getElementById('gowo-emote-autocomplete'); },
         type(value, caret = value.length, end = caret) {
             input.value = value;
@@ -53,9 +55,9 @@ test('matches names and tokens case-insensitively, with prefixes first and at mo
     const h = harness();
     h.type(':PE');
     assert.equal(h.list.hidden, false);
-    assert.equal(tokens(h)[0], ':peepolove:');
-    assert.ok(tokens(h).includes(':peeporun:'));
-    assert.ok(h.list.children.length <= 8);
+    assert.equal(tokens(h)[0], ':pepelaugh:');
+    assert.equal(h.list.children.length, 8, 'there are more than eight');
+    assert.ok(tokens(h).every(token => token.startsWith(':pe')));
     assert.equal(h.list.querySelectorAll('img').length, h.list.children.length);
     h.type(':run');
     assert.deepEqual(tokens(h), [':peeporun:']);
@@ -98,8 +100,8 @@ test('Tab replaces the whole token at the caret and preserves surrounding punctu
     const h = harness();
     h.type('before (:peeporun:) after', 'before (:pe'.length);
     h.key('Tab');
-    assert.equal(h.input.value, 'before (:peepolove:) after');
-    assert.equal(h.input.selectionStart, 'before (:peepolove:'.length);
+    assert.equal(h.input.value, 'before (:pepelaugh:) after');
+    assert.equal(h.input.selectionStart, 'before (:pepelaugh:'.length);
 });
 
 test('clicking a preview inserts its token without sending or losing the input focus', () => {
@@ -221,4 +223,20 @@ test('emote images load from the repository and fall back to 7TV once', async ()
     image.src = 'broken';
     h.fire(image, 'error');
     assert.equal(image.src, 'broken');
+});
+
+test('the emotes used most come first among equally good matches', () => {
+    const h = harness();
+    h.stored.set('gowo-plus-emote-uses-v1', JSON.stringify({ ':peeporun:': 2, ':peepolove:': 1 }));
+    h.document.body.insertAdjacentHTML('beforeend', `<app-chat-messages-room>
+        <img class="gowo-chat-emote" title=":peepolove:"><img class="gowo-chat-emote" title=":peepolove:">
+        <div class="text__reply"><img class="gowo-chat-emote" title=":peepohey:"></div>
+    </app-chat-messages-room>`);
+    h.type(':pe');
+    assert.deepEqual(tokens(h).slice(0, 3), [':peepolove:', ':peeporun:', ':pepelaugh:'],
+        'three uses in all beat two; a quote does not count again');
+    // Picking one counts as a use.
+    h.key('ArrowDown');
+    h.key('Enter');
+    assert.equal(JSON.parse(h.stored.get('gowo-plus-emote-uses-v1'))[':peeporun:'], 3);
 });

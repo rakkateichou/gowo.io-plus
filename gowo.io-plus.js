@@ -852,8 +852,7 @@
         });
     }
 
-    // The picker's catalogue, by mood; each group fits on one page of the
-    // picker. Tokens remain ordinary chat text so rooms keep working without
+    // The picker's catalogue, by mood; each group is one page of the picker. Tokens remain ordinary chat text so rooms keep working without
     // Gowo.io+.
     const sevenTvEmoteGroups = Object.freeze([
         { label: 'Смех', emotes: [
@@ -868,7 +867,18 @@
             { token: ':troll:', label: 'TROLL', id: '01F6P1E7QR0002RDNAW6FFQ1E0' },
             { token: ':clown:', label: 'Clown', id: '01G9FX2GSG000B7F9Y9BJECXYV' },
             { token: ':ez:', label: 'EZ', id: '01GB4CK01800090V9B3D8CGEEX' },
-            { token: ':pepega:', label: 'Pepega', id: '01EZTD6KQ800012PTN006Q50PV' }
+            { token: ':pepega:', label: 'Pepega', id: '01EZTD6KQ800012PTN006Q50PV' },
+            { token: ':xdd:', label: 'xdd', id: '01FF3R5C30000FF5VVCKV49G6J' },
+            { token: ':kekl:', label: 'KEKL', id: '01F6S7T5T8000B4N55W5NRFBY4' },
+            { token: ':lule:', label: 'LULE', id: '01F124V4VG0008S1RA006Y72VF' },
+            { token: ':sadkek:', label: 'sadKEK', id: '01F6NP85QG0003C6R1CKK91XW2' },
+            { token: ':hah:', label: 'HAH', id: '01H1F4W6P80005BD0YVPMCDXGT' },
+            { token: ':lol:', label: 'LOL', id: '01FZ975PV8000B4AWRZNMVNEXN' },
+            { token: ':hahaha:', label: 'HAHAHA', id: '01F6QA9RJ000015Y8FNQBDBNQ4' },
+            { token: ':monkalaugh:', label: 'monkaLaugh', id: '01F6M8NKX00002B6P5MWZ2QZSX' },
+            { token: ':xdding:', label: 'xdding', id: '01G9B5H16G0000AA8NJ01T47DR' },
+            { token: ':kapp:', label: 'Kapp', id: '01F00ZSP3R0007E4VV006YKSKH' },
+            { token: ':ripbozo:', label: 'RIPBOZO', id: '01F9DGR2YG000E7SC8F959BREV' }
         ] },
         { label: 'Радость', emotes: [
             { token: ':peepohappy:', label: 'peepoHappy', id: '01GAZ199Z8000FEWHS6AT5QZV0' },
@@ -886,7 +896,18 @@
             { token: ':peepowave:', label: 'peepoWave', id: '01FB6GQVG80001AXCAFYD4XA0T' },
             { token: ':salute:', label: 'Salute', id: '01F6Q8CVB000015Y8FNQBA5VBR' },
             { token: ':petpet:', label: 'PETPET', id: '01FE3XY508000AA32JP519W2EW' },
-            { token: ':booba:', label: 'BOOBA', id: '01F6N31ETR0004P7N4A9PKS5X9' }
+            { token: ':booba:', label: 'BOOBA', id: '01F6N31ETR0004P7N4A9PKS5X9' },
+            { token: ':happie:', label: 'happie', id: '01GY6AM3T000092DZSHC04S3AZ' },
+            { token: ':socute:', label: 'SoCute', id: '01GBZ948DG00012FGEGNTX5M9G' },
+            { token: ':peepoblush:', label: 'peepoBlush', id: '01FCEWEX60000DGV6QGPJ7715H' },
+            { token: ':catblush:', label: 'catBlush', id: '01F6ZMGM2G000A63TGZWCPNF0V' },
+            { token: ':hiii:', label: 'hiii', id: '01HE3BAWE0000DR138X30ZQKE6' },
+            { token: ':peepoarrive:', label: 'peepoArrive', id: '01F6Q92RGG000A6S4F82D85T0B' },
+            { token: ':peepobye:', label: 'peepoBye', id: '01F6Q09DJR00015Y8FNQBDEPQK' },
+            { token: ':peepoleave:', label: 'peepoLeave', id: '01G4ZGET1R0003SYTMXJ2SQCGP' },
+            { token: ':goodmorning:', label: 'GoodMorning', id: '01F6MFEK8G0000WDA7ERTDTR9R' },
+            { token: ':hugg:', label: 'hugg', id: '01GSFSNP68000FQDY745MP146Q' },
+            { token: ':peepopat:', label: 'peepoPat', id: '01F6N7ZY4000052X5637DG0KTC' }
         ] },
         { label: 'Праздник', emotes: [
             { token: ':hype:', label: 'Hype', id: '01F6NMD520000AAS5FM9QEF9ZJ' },
@@ -904,7 +925,17 @@
             { token: ':jammies:', label: 'Jammies', id: '01GB5S18QG00090V9B3D8CGHNG' },
             { token: ':nodders:', label: 'NODDERS', id: '01F6MDFCSR0000WDA7ERT623YT' },
             { token: ':gigachad:', label: 'GIGACHAD', id: '01F6MZGCNG000255K4X1K7NTHR' },
-            { token: ':wicked:', label: 'WICKED', id: '01F6NM2T080003C6R1CKK0T0P2' }
+            { token: ':wicked:', label: 'WICKED', id: '01F6NM2T080003C6R1CKK0T0P2' },
+            { token: ':peepodj:', label: 'peepoDJ', id: '01FBS4X63R000AAZQB4F0E7SEB' },
+            { token: ':lebronjam:', label: 'lebronJAM', id: '01GA4TYKW0000EN50T4AGZ0CK8' },
+            { token: ':blobdance:', label: 'blobDance', id: '01F6MWBB8R000255K4X1KDFFY5' },
+            { token: ':catdisco:', label: 'catDisco', id: '01F7A96T680001569Q2SWB43A0' },
+            { token: ':catpls:', label: 'catPls', id: '01G3BNV55000068RCV6YVN340R' },
+            { token: ':rainbowpls:', label: 'RainbowPls', id: '01G4M2821R000DSYZ0TDHA3ZKX' },
+            { token: ':banger:', label: 'BANGER', id: '01F6SDAHC000053E74RSRY2AD2' },
+            { token: ':hyperclap:', label: 'HYPERCLAP', id: '01F6MCJ5880009K1N00D4MGFX3' },
+            { token: ':borpaspin:', label: 'borpaSpin', id: '01F42G1J400005W0EZC5BGMVRX' },
+            { token: ':pphop:', label: 'ppHop', id: '01F6M75JSG000AXRNAAMWD55RW' }
         ] },
         { label: 'Грусть', emotes: [
             { token: ':sadge:', label: 'Sadge', id: '01EZPG1FN80001SNAW00ADK2DY' },
@@ -917,7 +948,18 @@
             { token: ':noooo:', label: 'NOOOO', id: '01F6MKTFTG0009C9ZSNZTFV2ZF' },
             { token: ':dead:', label: 'Dead', id: '01F8YE5QNR00081476FRV8XDEZ' },
             { token: ':copium:', label: 'Copium', id: '01F6ME7ADR0000WDA7ERT9H30R' },
-            { token: ':prayge:', label: 'Prayge', id: '01F6NACCD80006SZ7ZW5FMWKWK' }
+            { token: ':prayge:', label: 'Prayge', id: '01F6NACCD80006SZ7ZW5FMWKWK' },
+            { token: ':sadgecry:', label: 'SadgeCry', id: '01F6MMZW3R00012ZP6HJJ38G2E' },
+            { token: ':trisad:', label: 'TriSad', id: '01EZPGQES8000C438200A44F0M' },
+            { token: ':sadcat:', label: 'SadCat', id: '01FB7RN3JG00033EKAWRH8XE5R' },
+            { token: ':despairge:', label: 'Despairge', id: '01FTGK77VG0009FNT3YE4024KV' },
+            { token: ':feelsweakman:', label: 'FeelsWeakMan', id: '01F93Q2KQG00097B7MSQRESTYR' },
+            { token: ':please:', label: 'PLEASE', id: '01FECSYPZR0002KVMNHJBZWTWH' },
+            { token: ':saj:', label: 'SAJ', id: '01FK4ZFNDR000CCCJ7DMGD0H94' },
+            { token: ':pepesadjam:', label: 'pepeSadJam', id: '01F6Q6SZD80009K4HVQSZX258R' },
+            { token: ':ohno:', label: 'ohno', id: '01GMGF31YG000D73CMS1MQPA41' },
+            { token: ':feelsrainman:', label: 'FeelsRainMan', id: '01EZPGBXMR0001DCZS00AD662R' },
+            { token: ':pepemeltdown:', label: 'pepeMeltdown', id: '01F5YCPHCR000ARAYB43QJ1YM9' }
         ] },
         { label: 'Удивление', emotes: [
             { token: ':pog:', label: 'Pog', id: '01EZTCN91800012PTN006Q50PR' },
@@ -934,7 +976,18 @@
             { token: ':caught:', label: 'CAUGHT', id: '01H0SQNM9R0005HNCSM10SYJEQ' },
             { token: ':aware:', label: 'Aware', id: '01FFWH9WV80000JT8GHDKHJNZC' },
             { token: ':clueless:', label: 'Clueless', id: '01F6T8NM9R0007M5BTFWSP1YSJ' },
-            { token: ':pausechamp:', label: 'PauseChamp', id: '01F6N2GFVR000F76KNAAVCSDGX' }
+            { token: ':pausechamp:', label: 'PauseChamp', id: '01F6N2GFVR000F76KNAAVCSDGX' },
+            { token: ':what:', label: 'WHAT', id: '01G4ZTECKR0002P97QQ94BDSP4' },
+            { token: ':nowaying:', label: 'NOWAYING', id: '01GQ3WPTDR000300KQF1J7PFF8' },
+            { token: ':aaaa:', label: 'AAAA', id: '01FC4W70J80005D6HG0ANTP023' },
+            { token: ':monkasteer:', label: 'monkaSTEER', id: '01F6NMEF1R000AAS5FM9QEG8S3' },
+            { token: ':monkachrist:', label: 'monkaChrist', id: '01F6SJ6CNR000F2AC3SMEG1HB5' },
+            { token: ':flashbang:', label: 'FLASHBANG', id: '01F7CTADRG000351ERP2WA0ME9' },
+            { token: ':sussy:', label: 'SUSSY', id: '01F8G9MDAR0009YQPYZYCKHYKQ' },
+            { token: ':binoculars:', label: 'Binoculars', id: '01EZZ5X4VR000CYST6006V20TK' },
+            { token: ':caughtin4k:', label: 'CaughtIn4K', id: '01F7EQGC20000284NZWHEGDT00' },
+            { token: ':verypog:', label: 'VeryPog', id: '01EZPGPAN0000C438200A44F0K' },
+            { token: ':concerned:', label: 'Concerned', id: '01G55AX00R000B2BBGEQH5KW8K' }
         ] },
         { label: 'Реакции', emotes: [
             { token: ':hmm:', label: 'Hmm', id: '01F6MA6Y100002B6P5MWZ5D916' },
@@ -950,7 +1003,21 @@
             { token: ':ragey:', label: 'RAGEY', id: '01GBFAYKGR000FWWN7MDZZ8XQN' },
             { token: ':nopers:', label: 'NOPERS', id: '01EZY51MDR000CYST6006V20T4' },
             { token: ':based:', label: 'BASED', id: '01F031CCA80001TJB3006SVBHS' },
-            { token: ':chatting:', label: 'Chatting', id: '01FAK9C8MR0004HKF2ZK1YPQ5A' }
+            { token: ':chatting:', label: 'Chatting', id: '01FAK9C8MR0004HKF2ZK1YPQ5A' },
+            { token: ':modcheck:', label: 'modCheck', id: '01F6FTE8B80008E39HFFQJ7MWS' },
+            { token: ':donowall:', label: 'donowall', id: '01F6BN89H80006VBW12DRB1DJ0' },
+            { token: ':diesofcringe:', label: 'DIESOFCRINGE', id: '01FCX95ZG80009QXBMY7YYTVBJ' },
+            { token: ':weirdge:', label: 'Weirdge', id: '01F0HMZ1ZG0004V54C00A616CB' },
+            { token: ':noted:', label: 'NOTED', id: '01GEEHRQYG0006MCY6R6BPV3HB' },
+            { token: ':nerdge:', label: 'Nerdge', id: '01F9Q9PA100009VDTF4G64R32V' },
+            { token: ':listening:', label: 'Listening', id: '01FWR6BNTR0007SGPMW6AKG0Q9' },
+            { token: ':shruge:', label: 'Shruge', id: '01FS4ZNPV00002F97PTSA4XW9N' },
+            { token: ':bruh:', label: 'BRUH', id: '01F6MNCAHR0008DZ20TJ4E3TZS' },
+            { token: ':angy:', label: 'angy', id: '01FYXG5C3G0001NTS4HQM4JKKW' },
+            { token: ':ultramad:', label: 'UltraMad', id: '01FRVJX8DG0002F97PTSA4WCZ8' },
+            { token: ':awkward:', label: 'Awkward', id: '01F6N7QDN8000DJW55Q77ZXZ4E' },
+            { token: ':weirdchamp:', label: 'WeirdChamp', id: '01F6N782EG0008MBBZ0JRK1FEV' },
+            { token: ':gg:', label: 'gg', id: '01G1KTDMV00007V6BGFK48Q4DC' }
         ] },
         { label: 'Кино и уют', emotes: [
             { token: ':popcorn:', label: 'Popcorn', id: '01F86QDWK800018ZVH7PJSP4S5' },
@@ -965,7 +1032,20 @@
             { token: ':wokege:', label: 'Wokege', id: '01FEEK9MRG000FR0PC38FM26SD' },
             { token: ':chef:', label: 'Chef', id: '01FFR5Q96R0007P57XYW0BJAXG' },
             { token: ':peeporun:', label: 'peepoRun', id: '01F6Q045KR0005589X3BDQHRAY' },
-            { token: ':aloo:', label: 'Aloo', id: '01F6PRA3N80003BH8AEY9DWKDQ' }
+            { token: ':aloo:', label: 'Aloo', id: '01F6PRA3N80003BH8AEY9DWKDQ' },
+            { token: ':cinema:', label: 'Cinema', id: '01GBFDVP18000CRDCG0DV7KEMY' },
+            { token: ':peepocoffee:', label: 'peepoCoffee', id: '01F6MAWT78000B5V5G2M2MJBDY' },
+            { token: ':sippin:', label: 'Sippin', id: '01GAHPVTPG00097G249C9HFBEA' },
+            { token: ':tasty:', label: 'Tasty', id: '01F6NAA63800052X5637DGY0E8' },
+            { token: ':crunch:', label: 'crunch', id: '01GR5X7SPG00059JN12W34XF6K' },
+            { token: ':peeposit:', label: 'peepoSit', id: '01F9RVMY90000DNGANWDK1Q04G' },
+            { token: ':peeposleep:', label: 'peepoSleep', id: '01F640EPQG0003B9G1Z40HFHWQ' },
+            { token: ':eepy:', label: 'eepy', id: '01GP24H6T80007CK0HAA57X3QB' },
+            { token: ':blankies:', label: 'BLANKIES', id: '01F63S8FHG000C5JJ7RZAXN6F1' },
+            { token: ':guitartime:', label: 'GuitarTime', id: '01F6MDM7380000WDA7ERT6VTFQ' },
+            { token: ':violintime:', label: 'ViolinTime', id: '01F6M697J8000B5V5G2M2WDXMX' },
+            { token: ':watchingstream:', label: 'WatchingStream', id: '01F5PXJWVG00034VRANA2V6JJ5' },
+            { token: ':loading:', label: 'Loading', id: '01F79MHTTG0005BGS0Y3M0BNNS' }
         ] }
     ]);
     const sevenTvEmotes = Object.freeze(sevenTvEmoteGroups.flatMap(group => group.emotes));
@@ -1148,7 +1228,7 @@
         return scores;
     }
 
-    function frequentEmotes(limit = 16) {
+    function frequentEmotes(limit = 24) {
         const scores = emoteScores();
         return sevenTvEmotes.filter(emote => scores.get(emote.token) > 0)
             .sort((a, b) => scores.get(b.token) - scores.get(a.token)).slice(0, limit);
@@ -1518,8 +1598,8 @@
         picker.setAttribute('role', 'dialog');
         picker.setAttribute('aria-label', '7TV emotes');
 
-        // One page at a time, each without scrolling: the emotes used most,
-        // or one mood.
+        // One page at a time, each a short scroll at most: the emotes used
+        // most, or one mood.
         const pages = [{ label: 'Частые', frequent: true }, ...sevenTvEmoteGroups];
         const tabs = document.createElement('div');
         tabs.className = 'gowo-emote-tabs';
@@ -4475,11 +4555,12 @@
             /* Keep four columns in the 15% chat pane; images and labels below
                can shrink or wrap instead of forcing a wider minimum cell. */
             grid-template-columns: repeat(4, minmax(0, 1fr));
-            /* Four rows on every page, so switching pages never resizes it. */
-            grid-template-rows: repeat(4, minmax(60px, auto));
+            grid-auto-rows: minmax(60px, auto);
             align-content: start;
             gap: 4px;
-            max-height: min(55vh, 420px);
+            /* The same height on every page, so switching never resizes it; a
+               half row at the bottom shows when there is more to scroll to. */
+            height: min(55vh, 286px);
             overflow-x: hidden;
             overflow-y: auto;
             scrollbar-width: thin;

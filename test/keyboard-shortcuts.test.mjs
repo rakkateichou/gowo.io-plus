@@ -178,7 +178,7 @@ test('the picker shows one mood at a time; tabs and PageUp/PageDown turn the pag
         ['Частые', 'Смех', 'Радость', 'Праздник', 'Грусть', 'Удивление', 'Реакции', 'Кино и уют']);
     assert.equal(tabs[0].hidden, true, 'nothing used yet');
     assert.equal(shown(h).title, 'Смех');
-    assert.ok(shown(h).tokens.length <= 16);
+    assert.ok(shown(h).tokens.length >= 20, 'a page holds a good few');
     assert.equal(tabs[1].getAttribute('aria-selected'), 'true');
 
     tabs[4].click();

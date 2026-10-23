@@ -60,7 +60,7 @@ test('matches names and tokens case-insensitively, with prefixes first and at mo
     assert.ok(tokens(h).every(token => token.startsWith(':pe')));
     assert.equal(h.list.querySelectorAll('img').length, h.list.children.length);
     h.type(':run');
-    assert.deepEqual(tokens(h), [':peeporun:']);
+    assert.deepEqual(tokens(h), [':peeporun:', ':crunch:'], 'parts of names too');
     assert.equal(h.input.getAttribute('aria-activedescendant'), h.list.firstElementChild.id);
 });
 

@@ -16,7 +16,7 @@ A userscript for Tampermonkey and Safari Userscripts that enhances Gowo.io rooms
 - Reply text always starts below its quoted message
 - First-name-only quoted authors, using their chat nickname colour
 - Simple, uncircled chat-header icons with the original controls and tooltips
-- A 97-emote 7TV picker in pages by mood that opens on the emotes you use most, with
+- A 178-emote 7TV picker in pages by mood that opens on the emotes you use most, with
   `:token:` autocomplete and inline animated rendering
 - A dedicated Send button to the right of the chat field
 - A chat field that grows with its text up to six lines (**Shift+Enter** starts a new line)
@@ -37,8 +37,8 @@ and also finds parts of names, such as `:run` for `:peeporun:`.
 
 The picker shows one page at a time, chosen with the tabs along its top:
 **Частые**, then one page per mood (**Смех**, **Радость**, **Праздник**,
-**Грусть**, **Удивление**, **Реакции**, **Кино и уют**), each small enough to
-need no scrolling. **Частые** holds the emotes used most: those you picked in
+**Грусть**, **Удивление**, **Реакции**, **Кино и уют**), each a short scroll
+at most. **Частые** holds the emotes used most: those you picked in
 this browser and those in this room's chat, everyone's included. The picker opens
 there once it has anything, so no emote is favoured just by its place in a list.
 
@@ -53,7 +53,7 @@ copies as usual.
 The token stays ordinary Gowo.io chat text and is rendered as an emote for
 people running Gowo.io+. The catalogue started as the 48 emotes of the
 [JellyWatchParty fork](https://github.com/rakkateichou/JellyWatchParty) and now
-has 97; retired tokens still render in existing messages.
+has 178; retired tokens still render in existing messages.
 The picker keeps four columns in the 15% chat pane, with images that shrink and
 labels that wrap to fit narrow panels.
 

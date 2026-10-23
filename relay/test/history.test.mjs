@@ -271,8 +271,13 @@ test('everyone learns who else is in the room, who joins, who drops out, and why
     owner.say({ type: 'autopause', client: '2'.repeat(32), username: 'Аня Пример', gender: 'f' });
     assert.deepEqual(await third.next(), { type: 'autopause', client: '2'.repeat(32), username: 'Аня Пример', gender: 'f' });
 
-    owner.socket.close();
+    // Someone who asked the room to keep playing says so on the way out,
+    // whether chosen on joining or in settings later.
+    third.say({ type: 'presence', keepPlaying: true });
     third.socket.close();
-    await Promise.all([once(owner.socket, 'close'), once(third.socket, 'close')]);
+    assert.deepEqual(await owner.next(), { type: 'peer', client: '3'.repeat(32), username: 'Третий', keepPlaying: true, present: false });
+
+    owner.socket.close();
+    await once(owner.socket, 'close');
     await relay.close();
 });

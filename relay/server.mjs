@@ -121,10 +121,12 @@ export function createPluginRelay(options = {}) {
         }
     }
 
-    const peerInfo = ({ client, username, gender }) => ({ client, username, ...(gender ? { gender } : {}) });
+    // keepPlaying: this person asked that the room not pause when they drop out.
+    const peerInfo = ({ client, username, gender, keepPlaying }) =>
+        ({ client, username, ...(gender ? { gender } : {}), ...(keepPlaying ? { keepPlaying: true } : {}) });
 
     function leave(socket) {
-        const { room, client, username, gender } = socket.gowo || {};
+        const { room, client, username, gender, keepPlaying } = socket.gowo || {};
         if (!room) return;
         const peers = rooms.get(room);
         peers?.delete(socket);
@@ -138,7 +140,7 @@ export function createPluginRelay(options = {}) {
             username,
             visible: false
         }, socket);
-        broadcast(room, { type: 'peer', ...peerInfo({ client, username, gender }), present: false }, socket);
+        broadcast(room, { type: 'peer', ...peerInfo({ client, username, gender, keepPlaying }), present: false }, socket);
     }
 
     server.on('upgrade', (request, socket, head) => {
@@ -211,6 +213,7 @@ export function createPluginRelay(options = {}) {
                 state.client = message.client;
                 state.username = cleanName(message.username);
                 state.gender = cleanGender(message.gender);
+                state.keepPlaying = message.keepPlaying === true;
                 const returning = [...room].some(peer => peer.gowo.client === state.client);
                 room.add(socket);
                 rooms.set(state.room, room);
@@ -252,6 +255,11 @@ export function createPluginRelay(options = {}) {
                 const row = typeof message.id === 'string' && message.id.length <= messageIdLimit ?
                     store.remove(state.room, message.id) : null;
                 if (row) broadcast(state.room, { type: 'history', messages: [row] });
+                return;
+            }
+            if (message?.type === 'presence') {
+                // Changed in settings since joining.
+                state.keepPlaying = message.keepPlaying === true;
                 return;
             }
             if (message?.type === 'autopause') {

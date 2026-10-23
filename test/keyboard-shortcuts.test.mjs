@@ -148,3 +148,17 @@ test('clicking an emote inserts it and keeps arrow navigation in the grid', () =
     h.key(h.document.activeElement, { key: 'ArrowLeft' });
     assert.equal(h.document.activeElement, h.options[1]);
 });
+
+test('after clicking emotes, Enter sends instead of inserting the focused one again', () => {
+    const h = harness();
+    const sent = [];
+    h.input.addEventListener('keydown', event => { if (event.key === 'Enter') sent.push(h.input.value); });
+    h.document.getElementById('gowo-emote-toggle').click();
+    h.options[2].click();
+    const value = h.input.value;
+    assert.equal(h.key(h.document.activeElement, { key: 'Enter' }).defaultPrevented, true);
+    assert.equal(h.input.value, value, 'not inserted twice');
+    assert.deepEqual(sent, [value]);
+    assert.equal(h.picker.hidden, true);
+    assert.equal(h.document.activeElement, h.input);
+});

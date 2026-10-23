@@ -1497,6 +1497,8 @@
         picker.addEventListener('keydown', event => {
             const option = event.target.closest?.('.gowo-emote-option');
             if (!option || event.ctrlKey || event.metaKey || event.altKey) return;
+            // Picking with the mouse leaves an emote focused but not chosen by key.
+            const byPointer = picker.classList.contains('gowo-emote-pointer');
             picker.classList.remove('gowo-emote-pointer');
             const options = [...grid.querySelectorAll('.gowo-emote-option')];
             const index = options.indexOf(option);
@@ -1520,7 +1522,12 @@
                 // Handle Enter here so the button's synthetic click cannot insert twice.
                 event.preventDefault();
                 event.stopPropagation();
-                if (event.shiftKey) {
+                if (event.key === 'Enter' && !event.shiftKey && byPointer) {
+                    // After clicking emotes, Enter sends, as it does in the chat box.
+                    closeEmotePicker();
+                    input.focus({ preventScroll: true });
+                    sendMessageThroughGowo(input);
+                } else if (event.shiftKey) {
                     insertEmoteAtCaret(input, option.dataset.emoteToken);
                     focusEmoteOption(grid, option);
                 } else {
